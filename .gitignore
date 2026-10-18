@@ -1,0 +1,18 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# node / vite
+node_modules/
+dist/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
