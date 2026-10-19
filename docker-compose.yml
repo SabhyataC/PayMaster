@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: paymaster-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    volumes:
+      - paymaster_pgdata:/var/lib/postgresql/data
+
+volumes:
+  paymaster_pgdata:
