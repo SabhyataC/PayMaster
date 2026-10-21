@@ -13,11 +13,11 @@ from backend.db import get_conn
 
 # (name, country, current PayPal email). Everything here is fake and marked synthetic.
 VENDORS = [
-    ("Northwind Stationers",   "US", "ap@northwind-stationers.example.com"),
-    ("Kestrel Logistics",      "GB", "ap@kestrel-logistics.example.com"),
-    ("Bluefin Packaging",      "IN", "ap@bluefin-packaging.example.com"),
-    ("Orchard Cloud Services", "IE", "ap@orchard-cloud.example.com"),
-    ("Summit IT Support",      "SG", "ap@summit-it.example.com"),
+    ("Northwind Stationers",   "US", "paymaster-vendor-us@example.com"),
+    ("Kestrel Logistics",      "GB", "paymaster-vendor-uk@example.com"),
+    ("Bluefin Packaging",      "IN", "paymaster-vendor-in@example.com"),
+    ("Orchard Cloud Services", "DE", "paymaster-vendor-gm@example.com"),
+    ("Summit IT Support",      "US", "paymaster-vendor-us2@example.com"),
     ("Meridian Print Works",   "DE", "ap@meridian-print.example.com"),
     ("Harbor Office Supplies", "US", "ap@harbor-office.example.com"),
     ("Lakeside Catering",      "CA", "ap@lakeside-catering.example.com"),
