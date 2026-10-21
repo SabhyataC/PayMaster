@@ -1,0 +1,26 @@
+From: ap@harbor-office.example.com
+To: ap@paymaster-demo.example.com
+Subject: Invoice inv-7001
+Date: 15 October 2026
+
+Hi, resending as requested. Invoice below.
+
+Harbor Office Supplies
+Invoice no: inv-7001
+Date: 15 October 2026
+Due date: 14 November 2026
+Ref: PO-1007
+
+Items:
+- Toner cartridge: 5 x 85.00 = 425.00
+- Stapler: 10 x 12.00 = 120.00
+- Notebooks: 60 x 3.00 = 180.00
+Total due: $725.00
+
+Account holder: Harbor Office Supplies
+PayPal / payment email: ap@harbor-office.example.com
+
+Thanks,
+Harbor Office Supplies
+
+[SYNTHETIC SAMPLE - not a real invoice. Generated for the Paymaster demo.]

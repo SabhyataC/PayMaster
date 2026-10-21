@@ -1,0 +1,26 @@
+From: paymaster-vendor-uk@example.com
+To: ap@paymaster-demo.example.com
+Subject: Invoice INV-2001
+Date: 19th October 2026
+
+Hello, please find our invoice below.
+
+Kestrel Logistics
+Invoice no: INV-2001
+Date: 19th October 2026
+Due date: 18 November 2026
+Ref: PO-1002
+
+Items:
+- Freight Rotterdam to Newark, 2 containers: 2 x 1,200.00 = 2,400.00
+- Customs handling: 1 x 450.00 = 450.00
+- Port handling: 3 x 200.00 = 600.00
+Total due: $3,450.00
+
+Account holder: Kestrel Logistics
+PayPal / payment email: paymaster-vendor-uk@example.com
+
+Thanks,
+Kestrel Logistics
+
+[SYNTHETIC SAMPLE - not a real invoice. Generated for the Paymaster demo.]

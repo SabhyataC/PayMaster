@@ -1,0 +1,161 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "PaymasterInvoice",
+    "description": "Fields the AI must extract from an invoice. Missing fields must be null, never guessed.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "vendor_name",
+        "invoice_number",
+        "invoice_date",
+        "due_date",
+        "po_number",
+        "line_items",
+        "currency",
+        "total",
+        "bank_details",
+        "sender_email"
+    ],
+    "properties": {
+        "vendor_name": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "invoice_number": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "invoice_date": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "ISO YYYY-MM-DD"
+        },
+        "due_date": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "ISO YYYY-MM-DD"
+        },
+        "po_number": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "description": "As written on the invoice, e.g. PO#1003. Code normalizes it later."
+        },
+        "line_items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "description",
+                    "quantity",
+                    "unit_price"
+                ],
+                "properties": {
+                    "description": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "quantity": {
+                        "type": [
+                            "number",
+                            "null"
+                        ]
+                    },
+                    "unit_price": {
+                        "type": [
+                            "number",
+                            "null"
+                        ]
+                    }
+                }
+            }
+        },
+        "currency": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "pattern": "^[A-Z]{3}$",
+            "description": "ISO code, e.g. USD"
+        },
+        "tax": {
+            "type": [
+                "number",
+                "null"
+            ]
+        },
+        "total": {
+            "type": [
+                "number",
+                "null"
+            ],
+            "description": "Plain number: 1,250.00 becomes 1250.00"
+        },
+        "bank_details": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "account_holder",
+                "bank_name",
+                "account_number",
+                "routing_or_swift",
+                "payee_email"
+            ],
+            "properties": {
+                "account_holder": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "bank_name": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "account_number": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Account number or IBAN"
+                },
+                "routing_or_swift": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "payee_email": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "PayPal or payment email if the invoice gives one"
+                }
+            }
+        },
+        "sender_email": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "description": "Email address the invoice came from; null for a plain PDF with no sender"
+        }
+    }
+}
