@@ -1,0 +1,26 @@
+From: paymaster-vendor-us@example.com
+To: ap@paymaster-demo.example.com
+Subject: Invoice INV-1002
+Date: 23 October 2026
+
+Hello, please find our invoice below.
+
+Northwind Stationers
+Invoice no: INV-1002
+Date: 23 October 2026
+Due date: 22 November 2026
+PO-1001
+
+Items:
+- Copy paper A4 (case): 24 x 25.00 = 600.00
+- Ballpoint pens (box): 50 x 6.00 = 300.00
+- Desk organizer: 21 x 20.00 = 420.00
+Total due: $1,320.00
+
+Account holder: Northwind Stationers
+PayPal / payment email: paymaster-vendor-us@example.com
+
+Thanks,
+Northwind Stationers
+
+[SYNTHETIC SAMPLE - not a real invoice. Generated for the Paymaster demo.]

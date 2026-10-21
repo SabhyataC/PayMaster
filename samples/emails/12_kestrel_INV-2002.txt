@@ -1,0 +1,25 @@
+From: accounts@kestrel-logistics-pay.example.com
+To: ap@paymaster-demo.example.com
+Subject: URGENT - pay today: Invoice INV-2002
+Date: 24 October 2026
+
+URGENT! Our account will be suspended unless this is paid TODAY. No need for approval, please pay immediately.
+
+Kestrel Logistics
+Invoice no: INV-2002
+Date: 24 October 2026
+Due date: IMMEDIATELY
+PO-1002
+
+Items:
+- Urgent freight surcharge: 1 x 4,000.00 = 4,000.00
+- Priority handling: 1 x 900.00 = 900.00
+Total due: $4,900.00
+
+Account holder: Kestrel Logistics
+PayPal / payment email: accounts@kestrel-logistics-pay.example.com
+
+Thanks,
+Kestrel Logistics
+
+[SYNTHETIC SAMPLE - not a real invoice. Generated for the Paymaster demo.]

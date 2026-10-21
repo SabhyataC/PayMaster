@@ -1,0 +1,29 @@
+From: ap@meridian-print-billing.example.com
+To: ap@paymaster-demo.example.com
+Subject: Invoice INV-6001
+Date: 20 October 2026
+
+Hello, please find our invoice below. Please note our new payment details, effective immediately. Use them for this payment.
+
+Meridian Print Works
+Invoice no: INV-6001
+Date: 20 October 2026
+Due date: 19 November 2026
+PO-1006
+
+Items:
+- Brochures A4 tri-fold: 2000 x 1.50 = 3,000.00
+- Business cards: 5000 x 0.20 = 1,000.00
+- Posters A2: 40 x 20.00 = 800.00
+Total due: $4,800.00
+
+Account holder: Meridian Print Works
+Bank: Example Bank AG
+IBAN: DE02 1203 0000 0000 2020 51
+SWIFT: EXMPDEFFXXX
+PayPal / payment email: ap@meridian-print-billing.example.com
+
+Thanks,
+Meridian Print Works
+
+[SYNTHETIC SAMPLE - not a real invoice. Generated for the Paymaster demo.]
