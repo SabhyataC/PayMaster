@@ -9,6 +9,7 @@ Running this script ERASES all tables first, then rebuilds the demo company.
 Do not run it against a database holding data you want to keep.
 """
 
+import sys
 from backend.db import get_conn
 
 # (name, country, current PayPal email). Everything here is fake and marked synthetic.
@@ -113,11 +114,12 @@ def seed_invoices(conn, vendor_ids, po_ids):
 
 
 def main():
+    skip_invoices = "--no-invoices" in sys.argv  # intake creates the invoices from documents
     with get_conn() as conn:
         wipe(conn)
         vendor_ids = seed_vendors(conn)
         po_ids = seed_pos_and_deliveries(conn, vendor_ids)
-        n_invoices = seed_invoices(conn, vendor_ids, po_ids)
+        n_invoices = 0 if skip_invoices else seed_invoices(conn, vendor_ids, po_ids)
         print(f"Seeded {len(vendor_ids)} SYNTHETIC vendors, {len(po_ids)} POs with deliveries, {n_invoices} invoices")
 
 
