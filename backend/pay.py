@@ -22,6 +22,18 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
     Try to pay one invoice. Safe to call any number of times.
     approved_by: name of the human releasing a 'hold'. A 'block' can never be released.
     """
+    # 0. only invoices the investigator approved may go near PayPal
+    row = conn.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+    if row is None or row[0] not in ("approved", "paid"):
+        current = row[0] if row else None
+        log_decision(
+            conn, stage="pay", entity_type="invoice", entity_id=invoice_id,
+            decision="refused", reason=f"Invoice status is '{current}', not 'approved'",
+            inputs={"invoice_status": current},
+        )
+        conn.commit()
+        return {"status": "not_approved", "invoice_status": current}
+    
     # 1. policy check
     policy = check_policy(conn, invoice_id)
     outcome, reasons, inputs = policy["outcome"], policy["reasons"], policy["inputs"]
