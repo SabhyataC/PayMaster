@@ -1,0 +1,57 @@
+eval_id,invoice_number,vendor,scenario,expected,is_bad,split,has_email_text,note,synthetic
+E01,EV-1001,Reed Logistics,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E02,EV-1002,Nettle Print Works,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E03,EV-1003,Basalt IT Support,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E04,EV-1004,Zephyr Office Supplies,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E05,EV-1005,Inlet Catering,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E06,EV-1006,Larch Cloud Services,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E07,EV-1007,Clover Packaging,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E08,EV-1008,Estuary Consulting,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E09,EV-1009,Bishop Logistics,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E10,EV-1010,Willow Print Works,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E11,EV-1011,Xenon IT Support,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E12,EV-1012,Fjord Packaging,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E13,EV-1013,Yarrow Consulting,clean_plain,approve,0,holdout,0,"valid invoice, nothing wrong",yes
+E14,EV-1014,Walnut Logistics,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E15,EV-1015,Krypton Office Supplies,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E16,EV-1016,Drift Packaging,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E17,EV-1017,Quarry Print Works,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E18,EV-1018,Harbor IT Support,clean_plain,approve,0,dev,0,"valid invoice, nothing wrong",yes
+E19,EV-1019,Nimbus Catering,clean_near_limit,approve,0,dev,0,valid but close to the auto-pay limit,yes
+E20,EV-1020,Indigo Packaging,clean_near_limit,approve,0,holdout,0,valid but close to the auto-pay limit,yes
+E21,EV-1021,Sentinel Consulting,clean_near_limit,approve,0,dev,0,valid but close to the auto-pay limit,yes
+E22,EV-1022,Dahlia Logistics,clean_benign_email,approve,0,holdout,1,"valid, ordinary email wording",yes
+E23,EV-1023,Urchin Print Works,clean_benign_email,approve,0,dev,1,"valid, ordinary email wording",yes
+E24,EV-1024,Tangerine Catering,clean_benign_email,approve,0,dev,1,"valid, ordinary email wording",yes
+E25,EV-1025,Outpost Cloud Services,dup_original,approve,0,dev,0,valid original of a duplicate pair,yes
+E26,ev-1025,Outpost Cloud Services,duplicate_copy,reject,1,dev,0,same invoice number again as ev-1025,yes
+E27,EV-1026,Marsh Packaging,dup_original,approve,0,dev,0,valid original of a duplicate pair,yes
+E28,EV 1026,Marsh Packaging,duplicate_copy,reject,1,holdout,0,same invoice number again as EV 1026,yes
+E29,EV-1027,Oasis Consulting,dup_original,approve,0,dev,0,valid original of a duplicate pair,yes
+E30,EV.1027,Oasis Consulting,duplicate_copy,reject,1,dev,0,same invoice number again as EV.1027,yes
+E31,EV-1028,Mariner Logistics,dup_original,approve,0,dev,0,valid original of a duplicate pair,yes
+E32,ev 1028,Mariner Logistics,duplicate_copy,reject,1,dev,0,same invoice number again as ev 1028,yes
+E33,EV-1029,Opal Print Works,changed_bank,hold,1,dev,1,invoice names a new payout email,yes
+E34,EV-1030,Thistle Office Supplies,changed_bank,hold,1,holdout,0,invoice names a payout email on another domain,yes
+E35,EV-1031,Juno Catering,changed_bank,hold,1,dev,0,payout email on a look-alike domain,yes
+E36,EV-1032,Quill Packaging,changed_bank,hold,1,dev,0,bank change recorded 4 days ago; the invoice matches the new email,yes
+E37,EV-1033,Ivory Logistics,no_po,reject,1,dev,0,vendor is known but the invoice has no purchase order,yes
+E38,EV-1034,Everest IT Support,no_po,reject,1,holdout,0,vendor is known but the invoice has no purchase order,yes
+E39,EV-1035,Heron Packaging,no_po,reject,1,dev,0,vendor is known but the invoice has no purchase order,yes
+E40,EV-1036,Lumen Consulting,no_po,reject,1,dev,0,vendor is known but the invoice has no purchase order,yes
+E41,EV-1037,Tmepest Print Works,lookalike_vendor,reject,1,dev,0,'Tmepest Print Works' invoices against Tempest Print Works's PO,yes
+E42,EV-1038,Laggoon Catering,lookalike_vendor,reject,1,holdout,0,'Laggoon Catering' invoices against Lagoon Catering's PO,yes
+E43,EV-1039,Pineer Consulting,lookalike_vendor,reject,1,dev,0,'Pineer Consulting' invoices against Pioneer Consulting's PO,yes
+E44,EV-1040,Cany0n Consulting,lookalike_vendor,reject,1,dev,0,'Cany0n Consulting' invoices against Canyon Consulting's PO,yes
+E45,EV-1041,Quartz Logistics,scam_email,hold,1,holdout,1,"valid invoice, scam wording in the email",yes
+E46,EV-1042,Sierra IT Support,scam_email,hold,1,dev,1,"valid invoice, scam wording in the email",yes
+E47,EV-1043,Acacia Catering,scam_email,hold,1,dev,1,"valid invoice, scam wording in the email",yes
+E48,EV-1044,Garnet Consulting,scam_email,hold,1,dev,1,"valid invoice, scam wording in the email",yes
+E49,EV-1045,Jasper Print Works,amount_mismatch,hold,1,dev,0,invoice is 1.03x the PO amount,yes
+E50,EV-1046,Zinnia Catering,amount_mismatch,hold,1,dev,0,invoice is 1.10x the PO amount,yes
+E51,EV-1047,Summit Logistics,amount_mismatch,hold,1,holdout,0,invoice is 1.25x the PO amount,yes
+E52,EV-1048,Cypress IT Support,amount_mismatch,hold,1,dev,0,invoice is 1.50x the PO amount,yes
+E53,EV-1049,Boreal Office Supplies,no_delivery,hold,1,dev,0,PO exists but nothing was delivered,yes
+E54,EV-1050,Fern Catering,no_delivery,hold,1,dev,0,PO exists but nothing was delivered,yes
+E55,EV-1051,Juniper Packaging,no_delivery,hold,1,dev,0,PO exists but nothing was delivered,yes
+E56,EV-1052,Kestrel Catering,no_delivery,hold,1,holdout,0,PO exists but nothing was delivered,yes
