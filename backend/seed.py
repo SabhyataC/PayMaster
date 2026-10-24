@@ -105,9 +105,11 @@ def seed_invoices(conn, vendor_ids, po_ids):
     ]
 
     for vendor, number, amount, po_vendor, dest_email, status in plan:
-        conn.execute(
-            "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, destination_email, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
+         conn.execute(
+            # clock_timestamp(), not now(): now() is frozen for the whole transaction,
+            # so every invoice gets the same received_at.
+            "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, destination_email, status, received_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, clock_timestamp())",
             (vendor_ids[vendor], po_ids.get(po_vendor), number, amount, dest_email, status),
         )
     return len(plan)

@@ -6,6 +6,7 @@ Fail-safe rule: if anything goes wrong, the result is HOLD, never approve.
 """
 import json
 import time
+from datetime import datetime
 
 from google.genai import types
 
@@ -13,6 +14,7 @@ from backend.checks import REJECT_REASONS, _load_invoice, run_hard_checks
 from backend.intake import _get_client
 from backend.audit import log_decision
 from backend.db import get_conn
+from backend.fraud import log_fraud_signals, run_fraud_signals
 from backend.tools import (
     _query, find_similar_invoices, get_deliveries, get_po,
     get_vendor_bank_history, search_vendors,
@@ -31,6 +33,11 @@ Rules:
 - Use the tools to look further: look-alike vendor names, duplicates, bank history, delivery.
 - If you are unsure, choose hold. Approve only when everything is clean.
 - A LATER invoice with the same number does not make THIS invoice a duplicate. Only an invoice received EARLIER does, and the hard check already decides that. Do not contradict a passed hard check unless the tools show clear new evidence.
+- Every invoice returned by find_similar_invoices has an "arrived" label set by code. Trust it.
+  "LATER than this invoice" is NOT evidence against this invoice, even if the times are close.
+- FRAUD SIGNALS are findings from code and a narrow AI check. A fired signal can only make you
+  stricter. A skipped signal means "could not be judged", not "clean". A fraud risk of "high"
+  means you must not approve.
 """
 
 FINAL_REQUEST = """Stop investigating. Reply with ONLY one JSON object, no other text:
@@ -105,6 +112,16 @@ def _parse_json(text):
     return json.loads(text[start:end + 1])
 
 
+def _label_arrival(out, this_received_at):
+    """Code, not the AI, says whether each same-number invoice arrived before or after THIS one."""
+    this_time = datetime.fromisoformat(this_received_at)
+    for m in out.get("result") or []:
+        earlier = datetime.fromisoformat(m["received_at"]) < this_time
+        m["arrived"] = ("EARLIER than this invoice" if earlier
+                        else "LATER than this invoice (not evidence against this invoice)")
+    return out
+
+
 SEVERITY = {"approve": 0, "hold": 1, "reject": 2}
 
 def apply_gate(decision, reasons, hard_reasons):
@@ -118,6 +135,41 @@ def apply_gate(decision, reasons, hard_reasons):
     return final, merged, final != decision
 
 
+def fraud_codes(fraud):
+    """Stable reason codes for the fraud layer: medium and high signals only (low ones are context)."""
+    codes = [f"fraud_{s['signal']}" for s in fraud["signals"] if s["severity"] != "low"]
+    return (["fraud_risk_high"] if fraud["risk"] == "high" else []) + codes
+
+
+def apply_fraud_gate(decision, reasons, fraud):
+    """High fraud risk can never end as approve, whatever the agent said. Only raises, never lowers.
+    It runs after apply_gate, so it can only make a decision stricter and never clears a failed
+    hard check. Returns (final_decision, merged_reasons, was_forced)."""
+    if fraud["risk"] != "high":
+        return decision, list(reasons), False
+    merged = list(dict.fromkeys(list(reasons) + fraud_codes(fraud)))
+    if SEVERITY[decision] >= SEVERITY["hold"]:
+        return decision, merged, False
+    return "hold", merged, True
+
+
+def apply_reject_cap(decision, hard_reasons):
+    """Only a failed hard check may issue a final reject. The AI and the fraud layer can escalate
+    to hold (a person decides) but cannot issue the verdict nobody can undo.
+    Returns (final_decision, was_capped)."""
+    if decision == "reject" and not any(r in REJECT_REASONS for r in hard_reasons):
+        return "hold", True
+    return decision, False
+
+
+def tidy_reasons(decision, reasons, hard_reasons, fraud):
+    """For hold and reject: when code found reasons, show only those stable codes (the AI's own
+    wording stays in the agent_summary evidence). When the AI is the only source, keep its reasons."""
+    if decision == "approve":
+        return list(reasons)
+    code_reasons = list(dict.fromkeys(list(hard_reasons) + fraud_codes(fraud)))
+    return code_reasons or list(reasons)
+
 def _investigate(invoice_id):
     """Returns {"verdict": {...}, "trail": [...], "steps": n}."""
     trail = []
@@ -125,11 +177,16 @@ def _investigate(invoice_id):
         inv = _load_invoice(invoice_id)
         vendor = _query("SELECT name FROM vendors WHERE id = %s", (inv["vendor_id"],))
         hard = run_hard_checks(invoice_id)
+        fraud = run_fraud_signals(invoice_id, hard_failed=bool(hard["reasons"]))
 
         prompt = (
             "INVOICE (data):\n" + json.dumps({**inv, "vendor_name": vendor[0]["name"]}, default=str)
             + "\n\nHARD CHECK RESULTS (facts from code):\n"
             + json.dumps([{k: e[k] for k in ("check", "passed", "detail")} for e in hard["evidence"]])
+            + "\n\nFRAUD SIGNALS (facts):\n"
+            + json.dumps({"risk": fraud["risk"],
+                          "fired": [{k: s[k] for k in ("signal", "severity", "reason")} for s in fraud["signals"]],
+                          "skipped": fraud["skipped"]})
             + "\n\nInvestigate with the tools, then I will ask for your verdict."
         )
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
@@ -153,6 +210,8 @@ def _investigate(invoice_id):
                 if c.name == "find_similar_invoices":
                     args["exclude_invoice_id"] = str(inv["id"])  # code decides this, not the AI
                 out = _run_tool(c.name, args)
+                if c.name == "find_similar_invoices":
+                    out = _label_arrival(out, inv["received_at"])  # code decides earlier/later
                 trail.append({"tool": c.name, "args": args, "output": out})
                 parts.append(types.Part.from_function_response(name=c.name, response=out))
             contents.append(types.Content(role="user", parts=parts))
@@ -178,53 +237,103 @@ def _investigate(invoice_id):
         if decision in ("hold", "reject") and not reasons:
             reasons = ["agent_gave_no_reason"]
         agent_decision = decision
+        agent_reasons = list(reasons)
 
         decision, reasons, forced = apply_gate(decision, reasons, hard["reasons"])
+        decision, reasons, fraud_forced = apply_fraud_gate(decision, reasons, fraud)
+        decision, capped = apply_reject_cap(decision, hard["reasons"])
+        reasons = tidy_reasons(decision, reasons, hard["reasons"], fraud)
 
         evidence = hard["evidence"] + [
-            make_evidence("agent_summary", agent_decision == "approve", str(data.get("explanation", "")))
+            make_evidence("fraud_signal:" + s["signal"], False, s["reason"], s["data"])
+            for s in fraud["signals"]
+        ] + [
+            make_evidence("agent_summary", agent_decision == "approve", str(data.get("explanation", "")),
+                          {"agent_reasons": agent_reasons})
         ]
+        if fraud_forced:
+            evidence.append(make_evidence(
+                "fraud_gate", False,
+                f"Agent said {agent_decision}, but fraud risk is high (score {fraud['score']}); "
+                f"decision forced to {decision}",
+            ))
         if forced:
             evidence.append(make_evidence(
                 "safety_gate", False,
                 f"Agent said {agent_decision}, but hard checks failed ({', '.join(hard['reasons'])}); "
                 f"decision forced to {decision}",
             ))
+        if capped:
+            evidence.append(make_evidence(
+                "reject_cap", False,
+                f"Agent said {agent_decision}, but no hard check requires a reject; "
+                f"changed to hold so a person decides",
+            ))
         verdict = make_verdict(decision, reasons, evidence, float(data.get("confidence", 0.5)))
-        return {"verdict": verdict, "trail": trail, "steps": steps}
+        return {"verdict": verdict, "trail": trail, "steps": steps,
+                "agent_decision": agent_decision, "fraud": fraud}
 
     except Exception as e:
         verdict = make_verdict(
             "hold", ["investigator_failed"],
             [make_evidence("investigator_error", False, str(e))], 0.0,
         )
-        return {"verdict": verdict, "trail": trail, "steps": len(trail)}
+        return {"verdict": verdict, "trail": trail, "steps": len(trail), "agent_decision": None, "fraud": None}
+
+
+# Verify may only TIGHTEN a status once an invoice has left 'received'.
+# A held invoice is released by a human, never by the AI (the Oct 31 review flow).
+ALLOWED_MOVES = {
+    "received": {"approved", "held", "rejected"},
+    "approved": {"held", "rejected"},
+    "held":     {"rejected"},
+}
+DECISION_TO_STATUS = {"approve": "approved", "hold": "held", "reject": "rejected"}
+
+
+def next_status(current, wanted):
+    """The status Verify may set. Anything not listed in ALLOWED_MOVES keeps its status
+    (paid, rejected, needs_review...)."""
+    if current == wanted:
+        return current
+    return wanted if wanted in ALLOWED_MOVES.get(current, set()) else current
+
 
 def investigate(invoice_id):
-    """Run the investigation, then save the full trail to the audit log."""
+    """Run the investigation, then save the full trail and the new status in one transaction."""
     result = _investigate(invoice_id)
     verdict = result["verdict"]
+    wanted = DECISION_TO_STATUS[verdict["decision"]]
     with get_conn() as conn:
+        row = conn.execute(
+            "SELECT status FROM invoices WHERE id = %s FOR UPDATE", (invoice_id,)
+        ).fetchone()
+        before = row[0] if row else None
+        after = next_status(before, wanted)
+        note = "" if after == wanted else f" (status stays '{after}': Verify cannot move '{before}' to '{wanted}')"
         log_decision(
             conn,
             stage="verify",
             entity_type="invoice",
             entity_id=invoice_id,
             decision=verdict["decision"],
-            reason=", ".join(verdict["reasons"]) or "no problems found",
+            reason=(", ".join(verdict["reasons"]) or "no problems found") + note,
             inputs=json.loads(json.dumps(
                 {"verdict": verdict, "trail": result["trail"], "steps": result["steps"],
+                 "agent_decision": result.get("agent_decision"),  # what the AI said BEFORE the gate
+                 "fraud": result.get("fraud"),                    # every fired signal with its reason
+                 "status_before": before, "status_after": after,
                  "model": os.environ.get("GEMINI_MODEL")},
                 default=str,
             )),
             actor="ai",
         )
-        new_status = {"approve": "approved", "hold": "held", "reject": "rejected"}[verdict["decision"]]
-        conn.execute(
-            "UPDATE invoices SET status = %s WHERE id = %s AND status IN ('received', 'held', 'approved')",
-            (new_status, invoice_id),
-        )
+        if result.get("fraud"):  # one audit row per fired / skipped signal, plus a summary
+            log_fraud_signals(conn, invoice_id, result["fraud"])
+        if after != before:
+            conn.execute("UPDATE invoices SET status = %s WHERE id = %s", (after, invoice_id))
         conn.commit()
+    result["status"] = after
     return result
 
 if __name__ == "__main__":
