@@ -321,6 +321,10 @@ def investigate(invoice_id):
         ).fetchone()
         before = row[0] if row else None
         after = next_status(before, wanted)
+        if (before == "approved" and after == "held" and conn.execute(
+                "SELECT 1 FROM audit_log WHERE entity_id = %s AND stage = 'review' AND decision = 'approved' LIMIT 1",
+                (invoice_id,)).fetchone()):
+            after = before  # a person approved it after reading the hold: a re-run may still reject, never re-hold
         note = "" if after == wanted else f" (status stays '{after}': Verify cannot move '{before}' to '{wanted}')"
         log_decision(
             conn,
