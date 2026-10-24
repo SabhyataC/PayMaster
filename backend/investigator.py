@@ -88,7 +88,9 @@ def _generate(contents, cfg):
             return _get_client().models.generate_content(model=model, contents=contents, config=cfg)
         except Exception as e:
             msg = str(e)
-            if attempt < 2 and ("429" in msg or "RESOURCE_EXHAUSTED" in msg or "503" in msg):
+            transient = ("429", "RESOURCE_EXHAUSTED", "503", "disconnected", "getaddrinfo", "timed out",
+                         "timeout", "Connection", "connect")
+            if attempt < 2 and any(t in msg for t in transient):
                 time.sleep(20 * (attempt + 1))
                 continue
             raise
@@ -170,9 +172,11 @@ def tidy_reasons(decision, reasons, hard_reasons, fraud):
     code_reasons = list(dict.fromkeys(list(hard_reasons) + fraud_codes(fraud)))
     return code_reasons or list(reasons)
 
+
 def _investigate(invoice_id):
     """Returns {"verdict": {...}, "trail": [...], "steps": n}."""
     trail = []
+    hard = fraud = None  # filled in as soon as the code layers have run, so a later AI error can still use them
     try:
         inv = _load_invoice(invoice_id)
         vendor = _query("SELECT name FROM vendors WHERE id = %s", (inv["vendor_id"],))
@@ -274,11 +278,18 @@ def _investigate(invoice_id):
                 "agent_decision": agent_decision, "fraud": fraud}
 
     except Exception as e:
-        verdict = make_verdict(
-            "hold", ["investigator_failed"],
-            [make_evidence("investigator_error", False, str(e))], 0.0,
-        )
-        return {"verdict": verdict, "trail": trail, "steps": len(trail), "agent_decision": None, "fraud": None}
+        # The AI (or the network) failed. The code layers may already have a verdict: keep it.
+        # Never looser than hold, and reject only when a hard check requires it.
+        reasons = ["investigator_failed"]
+        evidence = [make_evidence("investigator_error", False, str(e))]
+        decision = "hold"
+        if hard is not None:
+            decision, _ = apply_reject_cap("reject" if any(r in REJECT_REASONS for r in hard["reasons"])
+                                           else "hold", hard["reasons"])
+            reasons = list(dict.fromkeys(list(hard["reasons"]) + (fraud_codes(fraud) if fraud else []) + reasons))
+            evidence = hard["evidence"] + evidence
+        verdict = make_verdict(decision, reasons, evidence, 0.0)
+        return {"verdict": verdict, "trail": trail, "steps": len(trail), "agent_decision": None, "fraud": fraud}
 
 
 # Verify may only TIGHTEN a status once an invoice has left 'received'.

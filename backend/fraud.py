@@ -28,19 +28,30 @@ POINTS = {"low": 1, "medium": 2, "high": 4}
 
 # Plain-text scan. It is a floor under the AI: if these phrases are in the text, the signal fires
 # even when the AI says "no" or is unavailable, so wording aimed at the AI cannot switch it off.
-# "high" = text aimed at whoever (or whatever) reviews the invoice; "medium" = ordinary pressure.
+# Phrases, not single words: words like "immediately" or "confidential" are common in harmless emails.
+# "high" = aimed at the reviewer, asks to bypass approval or keep it quiet, demands payment under
+# pressure, or announces changed bank details. "medium" = the word "urgent" on its own.
+_GAP = r"[^.\n]{0,60}"
 PRESSURE_PATTERNS = [(re.compile(p, re.I), sev) for p, sev in (
+    # aimed at whoever (or whatever) reviews the invoice
     (r"ignore (?:all |any |your |the |previous |prior )*instructions", "high"),
     (r"(?:approve|pay) this invoice", "high"),
     (r"mark (?:every|all|each) check", "high"),
-    (r"skip (?:the )?(?:approval|checks?|verification|review)", "high"),
+    # bypass approval or keep it quiet
+    (r"skip (?:the )?(?:usual |normal |standard )?(?:approval|checks?|verification|review)", "high"),
+    (r"(?:no need|not necessary|don't need|do not need) (?:for|to get|to wait for) (?:the )?(?:approval|sign-?off|checks?)", "high"),
+    (r"\bbypass", "high"),
+    (r"\b(?:quietly|discreetly|off the books)\b", "high"),
+    (r"(?:don't|do not|without) (?:to )?(?:loop|involve|tell|inform|notify|alert|call|verify)" + _GAP, "high"),
+    # payment demanded under pressure
+    (r"\burgent(?:ly)?\b" + _GAP + r"\b(?:pay|paid|payment|suspend|penalt|legal|terminat|disconnect)", "high"),
+    (r"\b(?:pay|paid|payment|wire|transfer|send)\b" + _GAP + r"\b(?:today|immediately|right away|asap|within the hour)\b", "high"),
+    (r"\beffective immediately\b", "high"),
+    # changed bank details
+    (r"\b(?:bank|account|payment|wire) details\b" + _GAP + r"\b(?:changed|updated|new)\b", "high"),
+    (r"\b(?:new|changed|updated) (?:bank|account|payment|wire) (?:details|account)\b", "high"),
+    # weak on its own
     (r"\burgent(?:ly)?\b", "medium"),
-    (r"\bimmediately\b", "medium"),
-    (r"\bpay (?:today|now|asap)\b", "medium"),
-    (r"\basap\b", "medium"),
-    (r"(?:do not|don't) (?:tell|inform|call|verify)", "medium"),
-    (r"\b(?:confidential|secret)\b", "medium"),
-    (r"new (?:bank|payment|account) details", "medium"),
 )]
 
 AI_SYSTEM = """You answer ONE narrow question about invoice data and reply with ONLY a JSON object.

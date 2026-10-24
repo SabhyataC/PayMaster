@@ -20,3 +20,6 @@ dist/
 try_*.py
 
 Updates.txt
+.env
+eval_runs/
+__pycache__/
