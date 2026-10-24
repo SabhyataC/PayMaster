@@ -5,9 +5,15 @@ import time
 from backend.db import get_conn
 from backend.investigator import investigate
 
+
+
 # invoice number -> (scenario, decisions that count as correct)
 SCENARIOS = {
+    "INV-1001": ("clean", {"approve"}),
     "INV-2001": ("clean", {"approve"}),
+    "INV-3001": ("clean", {"approve"}),
+    "INV-4001": ("clean", {"approve"}),
+    "INV-5001": ("clean", {"approve"}),
     "INV-6001": ("changed bank", {"hold"}),
     "INV-7001": ("duplicate (original)", {"approve"}),
     "inv-7001": ("duplicate (copy)", {"hold", "reject"}),
@@ -29,7 +35,7 @@ def main():
         if v["decision"] == "approve" and "approve" not in ok:
             flag = "BAD INVOICE APPROVED"
             bad_approved += 1
-        forced = any(e["check"] == "safety_gate" for e in v["evidence"])
+        forced = any(e["check"] in ("safety_gate", "fraud_gate", "reject_cap") for e in v["evidence"])
         print(f"{number:9} {scenario:22} -> {v['decision']:7} {flag:5} "
               f"{'(gate forced) ' if forced else ''}{', '.join(v['reasons'])}")
         time.sleep(5)  # free-tier rate limit
