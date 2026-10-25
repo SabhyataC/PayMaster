@@ -114,6 +114,34 @@ def seed_invoices(conn, vendor_ids, po_ids):
         )
     return len(plan)
 
+# SYNTHETIC. Clean invoices in the vendor's own currency, each with its own PO and full delivery.
+# (vendor, PO number, invoice number, amount, currency, what was delivered)
+FOREIGN_PLAN = [
+    ("Kestrel Logistics",      "PO-1009", "INV-2002", 1250.00, "GBP", "Freight, December shipments"),
+    ("Orchard Cloud Services", "PO-1010", "INV-4002",  980.00, "EUR", "Cloud hosting, November"),
+]
+
+
+def seed_foreign_currency(conn, vendor_ids):
+    """PO, full delivery and invoice, all in the vendor's currency. Returns how many invoices were added."""
+    email = {name: e for name, _, e in VENDORS}
+    for vendor, po_number, inv_number, amount, currency, description in FOREIGN_PLAN:
+        po_id = conn.execute(
+            "INSERT INTO purchase_orders (po_number, vendor_id, amount, currency) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (po_number, vendor_ids[vendor], amount, currency),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO deliveries (po_id, description, amount) VALUES (%s, %s, %s)",
+            (po_id, description, amount),
+        )
+        conn.execute(
+            "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, currency, "
+            "destination_email, status, received_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'received', clock_timestamp())",
+            (vendor_ids[vendor], po_id, inv_number, amount, currency, email[vendor]),
+        )
+    return len(FOREIGN_PLAN)
 
 def main():
     skip_invoices = "--no-invoices" in sys.argv  # intake creates the invoices from documents
@@ -121,7 +149,7 @@ def main():
         wipe(conn)
         vendor_ids = seed_vendors(conn)
         po_ids = seed_pos_and_deliveries(conn, vendor_ids)
-        n_invoices = 0 if skip_invoices else seed_invoices(conn, vendor_ids, po_ids)
+        n_invoices = 0 if skip_invoices else seed_invoices(conn, vendor_ids, po_ids) + seed_foreign_currency(conn, vendor_ids)
         print(f"Seeded {len(vendor_ids)} SYNTHETIC vendors, {len(po_ids)} POs with deliveries, {n_invoices} invoices")
 
 

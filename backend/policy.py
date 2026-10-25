@@ -3,8 +3,9 @@ from decimal import Decimal
 # Above this amount, a human must approve. Placeholder: change it freely.
 MAX_AUTO_PAY = Decimal("5000.00")
 
-# Skeleton supports USD only. Widen this when the Reconcile stage handles FX.
-ALLOWED_CURRENCIES = {"USD"}
+# Currencies we pay in. The auto-pay limit above is applied as a number in the invoice's own
+# currency: we never convert amounts ourselves, only PayPal states real exchange rates.
+ALLOWED_CURRENCIES = {"USD", "GBP", "EUR"}
 
 
 def check_policy(conn, invoice_id) -> dict:
