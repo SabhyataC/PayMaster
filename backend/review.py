@@ -7,6 +7,7 @@ import uuid
 
 from backend.audit import log_decision
 from backend.checks import REJECT_REASONS, run_hard_checks
+from backend.verdict import REASON_BANK_CHANGED
 from backend.policy import check_policy
 
 # What a person may do to an invoice, by its current status.
@@ -96,7 +97,7 @@ def get_case(conn, invoice_id):
     }
 
 
-def decide(conn, invoice_id, decision, reviewer, note):
+def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=False):
     """Apply a human decision. Raises ReviewError (and changes nothing) when it is not allowed."""
     invoice_id = _uuid(invoice_id)
     reviewer, note = (reviewer or "").strip(), (note or "").strip()
@@ -120,6 +121,11 @@ def decide(conn, invoice_id, decision, reviewer, note):
         stuck = [r for r in hard["reasons"] if r in REJECT_REASONS]
         if stuck:
             raise ReviewError("hard_reject", "Cannot approve: " + ", ".join(stuck))
+        if REASON_BANK_CHANGED in hard["reasons"] and confirmed_with_vendor is not True:
+            raise ReviewError(
+                "confirmation_required",
+                "Bank details changed. Call the vendor on a number you already had, "
+                "then approve with confirmed_with_vendor = true")
 
     # Compare-and-swap: if someone else decided first (or Verify moved it), this updates 0 rows.
     cur = conn.execute("UPDATE invoices SET status = %s WHERE id = %s AND status = %s",
@@ -133,9 +139,7 @@ def decide(conn, invoice_id, decision, reviewer, note):
         conn, stage="review", entity_type="invoice", entity_id=invoice_id,
         decision=new_status, actor="human",
         reason=f"{reviewer} chose '{decision}': {note}",
-        inputs={"reviewer": reviewer, "note": note, "action": decision, "status_before": before,
-                "status_after": new_status,
-                "verify_reasons": ((verify or {}).get("inputs") or {}).get("verdict", {}).get("reasons", [])},
+        inputs={"reviewer": reviewer, "note": note,"confirmed_with_vendor": bool(confirmed_with_vendor), "action": decision, "status_before": before, "status_after": new_status, "verify_reasons": ((verify or {}).get("inputs") or {}).get("verdict", {}).get("reasons", [])},
     )
     conn.commit()
     return {"invoice_id": str(invoice_id), "status_before": before, "status": new_status,

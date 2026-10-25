@@ -28,6 +28,7 @@ class Decision(BaseModel):
     decision: str     # "approve" | "reject"
     reviewer: str
     note: str
+    confirmed_with_vendor: bool = False
 
 
 class PayRelease(BaseModel):
@@ -60,7 +61,7 @@ def decision(invoice_id: str, body: Decision, x_review_token: str | None = Heade
     require_token(x_review_token)
     try:
         with get_conn() as conn:
-            return decide(conn, invoice_id, body.decision, body.reviewer, body.note)
+            return decide(conn, invoice_id, body.decision, body.reviewer, body.note, body.confirmed_with_vendor)
     except ReviewError as e:
         _fail(e)
 
