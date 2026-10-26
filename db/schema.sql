@@ -158,3 +158,29 @@ CREATE TABLE IF NOT EXISTS extractions (
 CREATE INDEX IF NOT EXISTS idx_extractions_status ON extractions (status);
 
 CREATE INDEX IF NOT EXISTS idx_extractions_invoice ON extractions (invoice_id);
+
+CREATE TABLE IF NOT EXISTS exceptions (
+    id SERIAL PRIMARY KEY,
+    payment_id UUID REFERENCES payments (id),
+    type TEXT NOT NULL,
+    detail JSONB NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'open' CHECK (
+        status IN ('open', 'resolved')
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_by TEXT,
+    resolved_at TIMESTAMPTZ,
+    note TEXT
+);
+
+-- One open exception per payment per type. This makes run 2 safe:
+-- the same problem can't be logged twice while it's still open.
+CREATE UNIQUE INDEX IF NOT EXISTS exceptions_one_open
+    ON exceptions (payment_id, type) WHERE status = 'open';
+
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 1;
+
+-- One payment per invoice per attempt number. This is the database-level
+-- never-pay-twice guard, even if two requests arrive at the same moment.
+CREATE UNIQUE INDEX IF NOT EXISTS payments_invoice_attempt
+    ON payments (invoice_id, attempt);

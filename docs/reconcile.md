@@ -6,3 +6,19 @@
 4. Every ledger row is in the currency of the money it describes, and for each payment, debits equal credits inside each currency.
 5. If a payout is RETURNED, we add mirror rows (debit and credit swapped) for what PayPal says came back, the invoice goes back to approved, and the new attempt gets its own idempotency key.
 6. Ledger rows are never edited or deleted; a mistake is fixed only by adding new reversing rows.
+
+## Day 16: exceptions and reconcile
+
+`backend/reconcile.py` `run_reconcile(conn)` logs these exception types, one open row per payment per type:
+`unknown_outcome` (30 min), `pending_too_long` (1 h), `unclaimed_too_long` (7 days),
+`success_mismatch`, `amount_mismatch`, `unknown_payout` (PayPal payout we have no payment for).
+
+- Payouts younger than 3 hours are ignored by the PayPal comparisons (Transaction Search lags).
+- Unclaimed after 7 days: reconcile cancels the item, and once PayPal shows RETURNED the payment
+  becomes `returned` and the exception is resolved. An unclaimed payment has no ledger rows,
+  so nothing is reversed.
+- A returned payment may be paid again: `payments.attempt` goes up by one and the key gets `-2`, `-3`, ...
+  `failed` payments are never re-paid automatically.
+
+Known gap: if a payment we booked as `success` is later RETURNED by PayPal, reconcile reports
+`success_mismatch` but does not write reversing ledger rows yet.
