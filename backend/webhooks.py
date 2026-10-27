@@ -88,7 +88,9 @@ async def paypal_webhook(request: Request):
     return {"received": True, **result}
 
 from backend.review_api import router as review_router
+from backend.exceptions_api import router as exceptions_router
 
 app = FastAPI()
 app.include_router(router)
 app.include_router(review_router)
+app.include_router(exceptions_router)

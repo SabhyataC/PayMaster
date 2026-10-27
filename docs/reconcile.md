@@ -22,3 +22,14 @@
 
 Known gap: if a payment we booked as `success` is later RETURNED by PayPal, reconcile reports
 `success_mismatch` but does not write reversing ledger rows yet.
+
+## Day 17: exception API and AI explainer
+
+Endpoints (all need the `X-Review-Token` header):
+- `GET /exceptions?status=open|resolved`: list exceptions
+- `GET /exceptions/{id}`: one exception, with its saved explanation
+- `POST /exceptions/{id}/explain`: AI writes a plain-English explanation and a safe next step
+- `POST /exceptions/{id}/resolve`: a person (`resolved_by`, `note`) closes it
+
+The explainer is read-only: it never changes a payment or the ledger. If Gemini fails,
+a fixed template text is saved instead. Every explain and resolve writes an audit row.

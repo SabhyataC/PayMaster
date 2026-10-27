@@ -184,3 +184,5 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 1
 -- never-pay-twice guard, even if two requests arrive at the same moment.
 CREATE UNIQUE INDEX IF NOT EXISTS payments_invoice_attempt
     ON payments (invoice_id, attempt);
+
+ALTER TABLE exceptions ADD COLUMN IF NOT EXISTS explanation JSONB;
