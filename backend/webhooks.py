@@ -3,7 +3,7 @@ import os
 
 import requests
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-
+from backend.exceptions_api import router as exceptions_router, run_router
 from backend.db import get_conn
 from backend.settle import sync_payment
 
@@ -101,3 +101,4 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(review_router)
 app.include_router(exceptions_router)
+app.include_router(run_router)
