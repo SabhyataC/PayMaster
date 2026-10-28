@@ -89,8 +89,15 @@ async def paypal_webhook(request: Request):
 
 from backend.review_api import router as review_router
 from backend.exceptions_api import router as exceptions_router
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5500", "http://127.0.0.1:5500"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["X-Review-Token", "Content-Type"],
+)
 app.include_router(router)
 app.include_router(review_router)
 app.include_router(exceptions_router)

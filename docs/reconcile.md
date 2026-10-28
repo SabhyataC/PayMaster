@@ -33,3 +33,11 @@ Endpoints (all need the `X-Review-Token` header):
 
 The explainer is read-only: it never changes a payment or the ledger. If Gemini fails,
 a fixed template text is saved instead. Every explain and resolve writes an audit row.
+
+## Day 18: console
+
+`console/index.html` is a single-page AG Grid console (no build step).
+Run: start the API (`uvicorn backend.webhooks:app --port 8000`), then
+`python -m http.server 5500 --directory console` and open http://localhost:5500.
+Paste the review token (kept only in the browser tab). The exceptions grid has Explain
+and Resolve; the review queue grid has Approve, Reject and Pay. CORS allows only localhost:5500.
