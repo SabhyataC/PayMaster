@@ -186,3 +186,51 @@ CREATE UNIQUE INDEX IF NOT EXISTS payments_invoice_attempt
     ON payments (invoice_id, attempt);
 
 ALTER TABLE exceptions ADD COLUMN IF NOT EXISTS explanation JSONB;
+
+-- Human review decisions. Case memory (Nov 4) learns from this table.
+CREATE TABLE IF NOT EXISTS reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    invoice_id UUID NOT NULL REFERENCES invoices (id),
+    original_ai_decision TEXT, -- approve / hold / reject, from the Verify audit row
+    human_decision TEXT NOT NULL CHECK (human_decision IN ('approve', 'reject')),
+    reviewer TEXT NOT NULL,
+    note TEXT NOT NULL,
+    confirmed_with_vendor BOOLEAN NOT NULL DEFAULT false,
+    status_before TEXT,
+    status_after TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_invoice ON reviews (invoice_id);
+
+-- Case memory: one row per past human review, with the signals that fired and the outcome.
+CREATE OR REPLACE VIEW precedents AS
+SELECT r.id AS review_id,
+       r.invoice_id,
+       i.vendor_id,
+       i.invoice_number,
+       r.original_ai_decision AS ai_decision,
+       r.human_decision,
+       r.reviewer,
+       r.note,
+       r.created_at AS reviewed_at,
+       COALESCE(
+           (SELECT array_agg(s ORDER BY s)
+            FROM jsonb_array_elements_text(f.inputs -> 'signals') AS s),
+           ARRAY[]::text[]) AS signals,
+       CASE
+           WHEN r.human_decision = 'reject' THEN 'rejected'
+           WHEN EXISTS (SELECT 1 FROM exceptions e
+                        JOIN payments p ON p.id = e.payment_id
+                        WHERE p.invoice_id = i.id) THEN 'exception'
+           WHEN i.status = 'paid' THEN 'paid_fine'
+           ELSE 'not_paid_yet'
+       END AS outcome
+FROM reviews r
+JOIN invoices i ON i.id = r.invoice_id
+LEFT JOIN LATERAL (
+    SELECT a.inputs FROM audit_log a
+    WHERE a.entity_id = r.invoice_id AND a.stage = 'fraud'
+      AND a.reason LIKE 'Fraud risk %' AND a.created_at <= r.created_at
+    ORDER BY a.id DESC LIMIT 1
+) f ON true;
