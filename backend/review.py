@@ -84,6 +84,24 @@ def get_case(conn, invoice_id):
     history = [{"stage": s, "decision": d, "actor": a, "reason": r, "at": t.isoformat()} for s, d, a, r, t in conn.execute(
         "SELECT stage, decision, actor, reason, created_at FROM audit_log WHERE entity_id = %s "
         "AND stage IN ('review','pay') ORDER BY id", (invoice_id,)).fetchall()]
+
+    summary = conn.execute(
+        "SELECT inputs FROM audit_log WHERE entity_id = %s AND stage = 'fraud' "
+        "AND reason LIKE 'Fraud risk %%' ORDER BY id DESC LIMIT 1", (invoice_id,)).fetchone()
+    signals = sorted(set(((summary[0] if summary else None) or {}).get("signals", [])))
+    precedents = [
+        {"invoice_number": n, "ai_decision": a, "human_decision": h, "reviewer": rv,
+         "outcome": o, "reviewed_at": t.isoformat(), "note": note}
+        for n, a, h, rv, o, t, note in conn.execute(
+            """SELECT invoice_number, ai_decision, human_decision, reviewer, outcome, reviewed_at,
+                      left(note, 300)
+               FROM precedents
+               WHERE vendor_id = (SELECT vendor_id FROM invoices WHERE id = %s)
+                 AND signals = %s::text[] AND invoice_id <> %s
+               ORDER BY reviewed_at DESC LIMIT 5""",
+            (invoice_id, signals, invoice_id)).fetchall()
+    ]
+
     return {
         "invoice": {"id": str(row[0]), "invoice_number": row[1], "vendor": row[2], "amount": str(row[3]),
                     "currency": row[4], "destination_email": row[5], "status": row[6],
@@ -94,6 +112,7 @@ def get_case(conn, invoice_id):
         "policy": check_policy(conn, invoice_id),
         "allowed_actions": sorted(HUMAN_MOVES.get(row[6], {})),
         "history": history,
+        "precedents": precedents, 
     }
 
 
@@ -140,6 +159,13 @@ def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=Fal
         decision=new_status, actor="human",
         reason=f"{reviewer} chose '{decision}': {note}",
         inputs={"reviewer": reviewer, "note": note,"confirmed_with_vendor": bool(confirmed_with_vendor), "action": decision, "status_before": before, "status_after": new_status, "verify_reasons": ((verify or {}).get("inputs") or {}).get("verdict", {}).get("reasons", [])},
+    )
+    conn.execute(
+        """INSERT INTO reviews (invoice_id, original_ai_decision, human_decision, reviewer, note,
+                                confirmed_with_vendor, status_before, status_after)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+        (invoice_id, (verify or {}).get("decision"), decision, reviewer, note,
+         bool(confirmed_with_vendor), before, new_status),
     )
     conn.commit()
     return {"invoice_id": str(invoice_id), "status_before": before, "status": new_status,
