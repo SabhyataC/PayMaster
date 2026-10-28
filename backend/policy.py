@@ -39,6 +39,13 @@ def check_policy(conn, invoice_id) -> dict:
         blocks.append("currency_not_supported")
 
     # --- hold rules: a human looks first ---
+    risk_row = conn.execute(
+        "SELECT decision FROM audit_log WHERE entity_id = %s AND stage = 'fraud' "
+        "AND reason LIKE 'Fraud risk %%' ORDER BY id DESC LIMIT 1", (invoice_id,)).fetchone()
+    fraud_risk = risk_row[0] if risk_row else None
+    if fraud_risk == "high":
+        holds.append("fraud_risk_high")
+
     if amount is not None and amount > MAX_AUTO_PAY:
         holds.append("amount_over_limit")
 
@@ -74,5 +81,6 @@ def check_policy(conn, invoice_id) -> dict:
             "destination_email": email,
             "max_auto_pay": str(MAX_AUTO_PAY),
             "new_payee": new_payee,
+            "fraud_risk": fraud_risk,
         },
     }
