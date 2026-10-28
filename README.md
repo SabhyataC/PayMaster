@@ -23,8 +23,8 @@ Paymaster runs every invoice through four stages. Every decision is written to t
 
 ## Status
 
-- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, Pay stage, webhooks, ledger, audit log.
-- Next: case memory, Reconcile, cash advice, console.
+- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, case memory, Pay stage, webhooks, ledger, audit log, Reconcile (settlements, exceptions, AI explainer), first AG Grid console.
+- Next: console polish (invoices, payments, audit timeline), cash advice, demo video.
 - Results and limits: see `docs/ai-results.md` and `docs/fraud-signals.md`.
 
 ## PayPal sandbox accounts
@@ -123,6 +123,32 @@ python -m scripts.eval --holdout        # hold-out set: once, at the very end
 ```
 
 Results, what failed along the way and the limits of this test are in `docs/ai-results.md`.
+
+## Reconcile
+
+Reconcile compares our payment records with PayPal and logs every difference as an **exception**. Payouts younger than 3 hours are ignored, because PayPal's Transaction Search can lag.
+
+Run it (the server is `uvicorn backend.webhooks:app --port 8000`; the token is `REVIEW_TOKEN` from `.env`):
+
+```powershell
+$tok = ((Select-String -Path .env -Pattern '^REVIEW_TOKEN=').Line -replace '^REVIEW_TOKEN=','') -replace '"',''
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/reconcile/run -Headers @{"X-Review-Token"=$tok}
+```
+
+Running it twice in a row does not create duplicate exceptions. Each run writes an audit row.
+
+Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /exceptions/{id}/explain`, `POST /exceptions/{id}/resolve` (needs `resolved_by` and `note`; writes an audit row and moves no money).
+
+| Exception type | What it means |
+|---|---|
+| `unknown_outcome` | We sent a payout but never learned the result (for example a timeout), still unresolved after 30 minutes. |
+| `pending_too_long` | The payout has been submitted or pending for more than 1 hour. |
+| `unclaimed_too_long` | The vendor has not claimed the payout after 7 days. Reconcile cancels it, waits for PayPal to mark it RETURNED, writes reversing ledger rows (old rows are never edited) and makes the invoice payable again. |
+| `success_mismatch` | We recorded the payment as successful but PayPal says otherwise. |
+| `amount_mismatch` | The amount or currency PayPal shows differs from our settlement record. |
+| `unknown_payout` | PayPal shows a payout that we have no payment record for. |
+
+**AI explainer.** `POST /exceptions/{id}/explain` returns a plain-English explanation and one suggested action from a fixed list (`wait`, `cancel_unclaimed`, `contact_vendor`, `recheck_with_paypal`, `escalate`; anything else becomes `escalate`). The AI only explains and suggests: it never pays or cancels. If Gemini fails, a fixed template for the exception type is used. Scores and limits are in `docs/ai-results.md`.
 
 ## Webhooks
 

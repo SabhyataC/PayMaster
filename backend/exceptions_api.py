@@ -88,3 +88,24 @@ def explain(exception_id: int, x_review_token: str | None = Header(default=None)
             raise HTTPException(404, "exception not found")
         conn.commit()
     return result
+
+import uuid
+
+from backend.reconcile import run_reconcile
+
+run_router = APIRouter(prefix="/reconcile", tags=["reconcile"])
+
+
+@run_router.post("/run")
+def run_now(x_review_token: str | None = Header(default=None)):
+    """Check every payment against PayPal and log any new exceptions. Moves no money itself
+    (the only automatic action is cancelling an unclaimed payout, as built on Nov 2)."""
+    require_token(x_review_token)
+    with get_conn() as conn:
+        counts = run_reconcile(conn)
+        log_decision(
+            conn, stage="reconcile", entity_type="reconcile_run", entity_id=uuid.uuid4(),
+            decision="ran", reason=f"Reconcile run: {sum(counts.values())} new exception(s)",
+            inputs={"new_exceptions": counts}, actor="system")
+        conn.commit()
+    return {"new_exceptions": counts}
