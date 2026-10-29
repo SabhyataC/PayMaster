@@ -27,8 +27,13 @@
 
 <body>
     <h2>PayMaster Console</h2>
+    <div style="margin-bottom:12px"><input id="token" type="password" placeholder="Paste review token here" size="40">
+    </div>
+    <h3>Invoices</h3>
+    <div><button id="loadi">Load invoices</button> <span id="imsg"></span></div>
+    <div id="igrid" class="ag-theme-quartz" style="height:35vh"></div>
     <div id="bar">
-        <input id="token" type="password" placeholder="Review token" size="30">
+        <h3>Exceptions</h3>
         <select id="status">
             <option>open</option>
             <option>resolved</option>
@@ -147,6 +152,7 @@
                 const data = await r.json();
                 qApi.setGridOption("rowData", data.items);
                 $("qmsg").textContent = `${data.items.length} rows`;
+                await loadInvoices();
             } catch (e) { $("qmsg").textContent = "Cannot reach the API"; }
         }
         $("loadq").addEventListener("click", loadQueue);
@@ -191,6 +197,19 @@
             $("qmsg").textContent = `Error ${r.status}: ${errText(e)}`;
         }
 
+        function payMessage(d) {
+            switch (d.status) {
+                case "submitted": return "Sent to PayPal. It becomes 'paid' when PayPal confirms (a few minutes).";
+                case "already_exists": return `Not sent again: this invoice already has a payment (${d.payment_status}). Nothing was paid twice.`;
+                case "held": return `Not sent: needs a person's release (${(d.reasons || []).join(", ")}).`;
+                case "blocked": return `Blocked, not sent: ${(d.reasons || []).join(", ")}.`;
+                case "not_approved": return `Not sent: the invoice is '${d.invoice_status}', not approved.`;
+                case "unknown": return "PayPal did not answer clearly. Outcome unknown. Do NOT click Pay again; run reconcile.";
+                case "failed": return "PayPal refused the payment.";
+                default: return `Result: ${d.status}`;
+            }
+        }
+
         async function payInvoice(id, row) {
             const reviewer = prompt("Your name (you are releasing this payment):");
             if (!reviewer) return;
@@ -199,10 +218,64 @@
                 method: "POST", headers: hdr(), body: JSON.stringify({ reviewer }),
             });
             const e = await r.json().catch(() => ({}));
-            $("qmsg").textContent = r.ok ? "Payment sent" : `Error ${r.status}: ${errText(e)}`;
-            if (r.ok) loadQueue();
+            const m = r.ok ? payMessage(e) : `Error ${r.status}: ${errText(e)}`;
+            if (r.ok) await loadQueue();
+            $("qmsg").textContent = m;
+            $("imsg").textContent = m;
         }
 
+        const BADGE = { approved: "#2e7d32", held: "#ed6c02", rejected: "#c62828", paid: "#1565c0", needs_review: "#6a1b9a" };
+        function badge(p) {
+            const s = document.createElement("span");
+            s.textContent = p.value || "";
+            s.style.cssText = `background:${BADGE[p.value] || "#777"};color:#fff;padding:2px 8px;border-radius:10px;font-size:12px`;
+            return s;
+        }
+
+        function invoiceActions(p) {
+            const box = document.createElement("span");
+            if (p.data.status === "approved") {
+                const b = document.createElement("button");
+                b.textContent = "Pay";
+                b.addEventListener("click", async () => {
+                    await payInvoice(p.data.id, p.data);
+                    loadInvoices();
+                });
+                box.appendChild(b);
+            }
+            return box;
+        }
+
+        const iApi = agGrid.createGrid($("igrid"), {
+            columnDefs: [
+                { field: "invoice_number", headerName: "Number", width: 140 },
+                { field: "vendor", width: 180 },
+                { field: "amount", width: 110 },
+                { field: "currency", width: 100 },
+                { field: "status", width: 130, cellRenderer: badge },
+                { field: "fraud_risk", headerName: "Fraud risk", width: 120 },
+                { field: "received_at", headerName: "Received", flex: 1 },
+                { headerName: "Actions", width: 110, sortable: false, filter: false, cellRenderer: invoiceActions },
+            ],
+            defaultColDef: { sortable: true, filter: true, resizable: true },
+            rowData: [],
+        });
+
+        async function loadInvoices() {
+            sessionStorage.setItem("pm_token", $("token").value.trim());
+            $("imsg").textContent = "Loading...";
+            try {
+                const r = await fetch(`${API}/invoices`, { headers: hdr() });
+                if (!r.ok) { $("imsg").textContent = `Error ${r.status}`; return; }
+                const data = await r.json();
+                iApi.setGridOption("rowData", data.items);
+                $("imsg").textContent = `${data.items.length} invoices`;
+            } catch (e) {
+                $("imsg").textContent = "Cannot reach the API (is uvicorn running?)";
+            }
+        }
+        $("loadi").addEventListener("click", loadInvoices);
+        $("token").value = sessionStorage.getItem("pm_token") || "";
     </script>
 </body>
 

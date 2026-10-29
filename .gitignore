@@ -23,3 +23,5 @@ Updates.txt
 .env
 eval_runs/
 __pycache__/
+
+sync_now.py
