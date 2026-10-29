@@ -2,6 +2,7 @@
 or changes a payment. If the AI fails, a fixed template is used instead."""
 import json
 import os
+import uuid
 
 from google.genai import types
 from psycopg.types.json import Jsonb
@@ -91,6 +92,11 @@ def _facts(conn, exception_id):
         facts["recent_audit"] = [dict(zip(["stage", "decision", "reason"], r)) for r in a]
     return pid, type_, json.loads(json.dumps(facts, default=str))
 
+def audit_target(payment_id, exception_id):
+    """audit_log needs a UUID. An exception with no payment (unknown_payout) gets a stable one."""
+    if payment_id:
+        return "payment", payment_id
+    return "exception", uuid.uuid5(uuid.NAMESPACE_URL, f"paymaster-exception:{exception_id}")
 
 def explain_exception(conn, exception_id):
     """Returns {"explanation", "next_step", "source"} and saves it on the exception."""
@@ -117,9 +123,9 @@ def explain_exception(conn, exception_id):
         result = _template(type_)
     conn.execute("UPDATE exceptions SET explanation = %s WHERE id = %s",
                  (Jsonb(result), exception_id))
-    if pid:
-        log_decision(conn, stage="reconcile", entity_type="payment", entity_id=pid,
-                     decision="exception_explained", reason=result["explanation"],
-                     inputs={"exception_id": exception_id, "source": result["source"]},
-                     actor="ai" if result["source"] == "ai" else "system")
+    etype, eid = audit_target(pid, exception_id)
+    log_decision(conn, stage="reconcile", entity_type=etype, entity_id=eid,
+                 decision="exception_explained", reason=result["explanation"],
+                 inputs={"exception_id": exception_id, "source": result["source"]},
+                 actor="ai" if result["source"] == "ai" else "system")
     return result
