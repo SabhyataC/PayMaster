@@ -45,6 +45,7 @@
     <h3>Review queue</h3>
     <div id="bar2"><button id="loadq">Load review queue</button> <span id="qmsg"></span></div>
     <div id="qgrid" class="ag-theme-quartz" style="height:40vh"></div>
+    <div id="detail" style="margin:12px 0;padding:12px;border:1px solid #ccc;border-radius:6px;display:none"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
@@ -106,6 +107,7 @@
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
+
         });
 
         async function loadExceptions() {
@@ -129,6 +131,91 @@
         const hdr = () => ({ "X-Review-Token": $("token").value.trim(), "Content-Type": "application/json" });
         const errText = (e) => (e.detail && typeof e.detail === "object") ? e.detail.message : (e.detail || "");
 
+
+        function esc(s) {
+            return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+        }
+        function list(items, empty) {
+            return items.length ? "<ul>" + items.map((x) => `<li>${esc(x)}</li>`).join("") + "</ul>" : `<p><i>${empty}</i></p>`;
+        }
+
+        function plainError(e) {
+            const d = e && e.detail;
+            const code = d && d.code;
+            const MAP = {
+                note_too_short: "Your note is too short. Write at least 10 characters explaining why.",
+                reviewer_required: "Type your name in the Reviewer box.",
+                not_allowed: "A person cannot do that to this invoice in its current status. Reload and check its status.",
+                confirmation_required: "This invoice changed its bank details. Confirm with the vendor first, then tick the box.",
+                hard_reject: "Cannot approve: " + ((d && d.message) || "a hard check says this must not be paid."),
+                not_found: "That invoice no longer exists. Reload the page.",
+            };
+            if (code && MAP[code]) return MAP[code];
+            if (d && d.message) return d.message;
+            return typeof d === "string" ? d : "Something went wrong. Reload and try again.";
+        }
+
+        async function showCase(id) {
+            const box = $("detail");
+            box.style.display = "block";
+            box.textContent = "Loading...";
+            try {
+                const r = await fetch(`${API}/review/${id}`, { headers: hdr() });
+                const c = await r.json();
+                if (!r.ok) { box.textContent = `Error ${r.status}: ${errText(c)}`; return; }
+                const inv = c.invoice;
+                const v = c.verify || {};
+                const signals = (c.fraud_rows || []).filter((f) => !f.reason.startsWith("Fraud risk")).map((f) => `${f.decision}: ${f.reason}`);
+                const prec = (c.precedents || []).map((p) =>
+                    `${p.invoice_number}: AI said ${p.ai_decision}, ${p.reviewer} said ${p.human_decision}, outcome ${p.outcome}`);
+                const hist = (c.history || []).map((h) => `${h.stage}: ${h.decision} by ${h.actor || "system"}: ${h.reason}`);
+                const pol = c.policy || {};
+                box.innerHTML = `
+                    <h3>${esc(inv.invoice_number)} (${esc(inv.vendor)}): ${esc(inv.amount)} ${esc(inv.currency)}</h3>
+                    <p>Status <b>${esc(inv.status)}</b>. Pays to ${esc(inv.destination_email || "the vendor's email on file")}. Has PO: ${inv.has_po ? "yes" : "no"}.</p>
+                    <h4>AI verdict: ${esc(v.decision || "none yet")} (confidence ${esc(v.confidence ?? "n/a")})</h4>
+                    ${list(v.reasons || [], "No reasons recorded.")}
+                    <h4>Evidence</h4>${list((v.evidence || []).map((e) => typeof e === "string" ? e : `${e.passed ? "✔ PASSED" : "✘ FAILED"}  ${e.check}: ${e.detail}`), "No evidence recorded.")}
+                    <h4>Fraud signals</h4>${list(signals, "No fraud signals fired.")}
+                    <h4>Would policy allow paying it right now? ${esc(pol.outcome || "")}</h4>${list(pol.reasons || [], "No policy reasons.")}
+                    <h4>Past similar cases (same vendor, same signals)</h4>${list(prec, "No past cases.")}
+                    <h4>What has happened so far</h4>${list(hist, "No review or payment steps yet.")}`;
+                const allowed = c.allowed_actions || [];
+                if (allowed.includes("approve") || allowed.includes("reject")) {
+                    const f = document.createElement("div");
+                    f.style.cssText = "margin-top:14px;padding:10px;background:#f6f6f6;border-radius:6px";
+                    f.innerHTML = `
+                        <h4>Your decision</h4>
+                        <div><input id="d_reviewer" placeholder="Reviewer name" size="24"></div>
+                        <div style="margin:6px 0"><textarea id="d_note" rows="2" cols="60" placeholder="Why? (at least 10 characters)"></textarea></div>
+                        <label><input type="checkbox" id="d_confirmed"> I confirmed the bank details with the vendor (needed when the bank details changed)</label>
+                        <div style="margin-top:8px">
+                            ${allowed.includes("approve") ? '<button id="d_approve">Approve</button> ' : ""}
+                            ${allowed.includes("reject") ? '<button id="d_reject">Reject</button>' : ""}
+                            <span id="d_msg" style="margin-left:10px"></span>
+                        </div>`;
+                    box.appendChild(f);
+                    const send = async (decision) => {
+                        const r2 = await fetch(`${API}/review/${id}/decision`, {
+                            method: "POST", headers: hdr(),
+                            body: JSON.stringify({
+                                decision,
+                                reviewer: $("d_reviewer").value.trim(),
+                                note: $("d_note").value.trim(),
+                                confirmed_with_vendor: $("d_confirmed").checked,
+                            }),
+                        });
+                        const e2 = await r2.json().catch(() => ({}));
+                        if (!r2.ok) { $("d_msg").textContent = plainError(e2); $("d_msg").style.color = "#c62828"; return; }
+                        await loadQueue();
+                        await showCase(id);
+                    };
+                    if ($("d_approve")) $("d_approve").addEventListener("click", () => send("approve"));
+                    if ($("d_reject")) $("d_reject").addEventListener("click", () => send("reject"));
+                }
+            } catch (e) { box.textContent = "Cannot reach the API"; }
+        }
+
         const qApi = agGrid.createGrid($("qgrid"), {
             columnDefs: [
                 { field: "invoice_number", width: 140 },
@@ -142,6 +229,7 @@
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
+            onRowClicked: (e) => showCase(e.data.invoice_id),
         });
 
         async function loadQueue() {
