@@ -6,6 +6,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from backend.exceptions_api import router as exceptions_router, run_router
 from backend.db import get_conn
 from backend.settle import sync_payment
+from backend.corrections_api import router as corrections_router
 
 from backend.paypal_client import BASE, get_token  # also loads .env
 
@@ -102,3 +103,4 @@ app.include_router(router)
 app.include_router(review_router)
 app.include_router(exceptions_router)
 app.include_router(run_router)
+app.include_router(corrections_router)

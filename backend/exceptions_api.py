@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from backend.audit import log_decision
 from backend.db import get_conn
 from backend.review_api import require_token
-from backend.explain import explain_exception
+from backend.explain import audit_target, explain_exception
 
 router = APIRouter(prefix="/exceptions", tags=["exceptions"])
 
@@ -70,8 +70,9 @@ def resolve_exception(exception_id: int, body: Resolve,
                WHERE id = %s""",
             (body.resolved_by.strip(), body.note.strip(), exception_id),
         )
+        etype, eid = audit_target(r[0], exception_id)
         log_decision(
-            conn, stage="reconcile", entity_type="payment", entity_id=r[0],
+            conn, stage="reconcile", entity_type=etype, entity_id=eid,
             decision="exception_resolved",
             reason=f"{r[1]} resolved by {body.resolved_by.strip()}: {body.note.strip()}",
             inputs={"exception_id": exception_id}, actor="human",

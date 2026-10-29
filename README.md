@@ -124,6 +124,22 @@ python -m scripts.eval --holdout        # hold-out set: once, at the very end
 
 Results, what failed along the way and the limits of this test are in `docs/ai-results.md`.
 
+
+## Fix documents that need review
+
+When Intake is not sure about a document (low confidence, unknown vendor, unknown PO, duplicate number) it is saved as `needs_review` and no invoice is created. A person fixes the fields:
+
+```powershell
+(Invoke-RestMethod -Uri http://localhost:8000/extractions -Headers @{"X-Review-Token"=$tok}).items
+$body = @{reviewer="Sabhyata"; note="Vendor name had a typo, checked against the PO"; corrections=@{vendor_name="Bluefin Packaging"}} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/extractions/<ID>/correct -Headers @{"X-Review-Token"=$tok;"Content-Type"="application/json"} -Body $body
+```
+
+- Only `needs_review` extractions can be corrected (anything else returns 409). A reviewer name and a note of at least 10 characters are required.
+- The first AI-extracted values are kept in `original_extracted` and never overwritten. Each correction writes an audit row with original and corrected value per field.
+- The fields the person fixed count as checked, but the code checks still run on the new values (totals must match line items, dates in order, vendor and PO must exist). A wrong correction goes back to `needs_review` with the reason.
+- If it passes, the invoice is created as `received` and Verify runs again on it. Whether it may be paid is still decided by Verify, the review flow and policy, never by the correction.
+
 ## Reconcile
 
 Reconcile compares our payment records with PayPal and logs every difference as an **exception**. Payouts younger than 3 hours are ignored, because PayPal's Transaction Search can lag.

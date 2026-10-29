@@ -234,3 +234,6 @@ LEFT JOIN LATERAL (
       AND a.reason LIKE 'Fraud risk %' AND a.created_at <= r.created_at
     ORDER BY a.id DESC LIMIT 1
 ) f ON true;
+
+-- Needs-review corrections: the first AI-extracted values are kept here, never overwritten.
+ALTER TABLE extractions ADD COLUMN IF NOT EXISTS original_extracted jsonb;
