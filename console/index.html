@@ -83,6 +83,12 @@
     <div id="pgrid" class="ag-theme-quartz" style="height:30vh"></div>
     <div id="pdetail" class="panel"></div>
 
+    <h3>Ask PayMaster</h3>
+    <div><input id="q" placeholder="e.g. Why was INV-6001 held?" size="60" maxlength="1000">
+        <button id="ask">Ask</button> <span id="qa_msg"></span>
+    </div>
+    <div id="answer" class="panel"></div>
+
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
@@ -584,6 +590,26 @@
                 showAudit(d.payment.invoice_id);
             } catch (e) { $("msg").textContent = "Cannot reach the API (is uvicorn running?)"; }
         }
+
+
+        async function askChat() {
+            const q = $("q").value.trim();
+            if (!q) return;
+            $("qa_msg").textContent = "Thinking...";
+            $("answer").innerHTML = ""; $("answer").style.display = "none";
+            try {
+                const r = await fetch(`${API}/chat`, { method: "POST", headers: hdr(), body: JSON.stringify({ question: q }) });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { $("qa_msg").textContent = `Error ${r.status}: ${errText(d)}`; return; }
+                $("qa_msg").textContent = d.fallback ? "AI unavailable" : "";
+                $("answer").innerHTML = `<p style="white-space:pre-wrap">${esc(d.answer)}</p>` +
+                    (d.sources.length ? `<p><small>Sources: ${d.sources.map(esc).join(", ")}</small></p>` : "");
+                $("answer").style.display = "block";
+            } catch (e) { $("qa_msg").textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+        $("ask").addEventListener("click", askChat);
+        $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") askChat(); });
+
 
         $("token").value = sessionStorage.getItem("pm_token") || "";
     </script>
