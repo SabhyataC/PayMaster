@@ -26,3 +26,5 @@ numpy
 pymupdf
 pillow
 reportlab
+bcrypt
+pyjwt

@@ -11,6 +11,7 @@ Do not run it against a database holding data you want to keep.
 
 import sys
 from backend.db import get_conn
+from backend.auth import hash_password
 
 # (name, country, current PayPal email). Everything here is fake and marked synthetic.
 VENDORS = [
@@ -31,17 +32,30 @@ def wipe(conn):
     """DEV ONLY: empties every table so the seed can be re-run from scratch."""
     conn.execute(
         "TRUNCATE audit_log, ledger_entries, settlements, payments, invoices, "
-        "deliveries, purchase_orders, vendor_bank_history, vendors CASCADE"
+        "deliveries, purchase_orders, vendor_bank_history, vendors, users, companies CASCADE"
     )
 
+def seed_company(conn):
+    """The demo company every seeded row belongs to. Returns its id."""
+    return conn.execute(
+        "INSERT INTO companies (name) VALUES ('Demo Company (SYNTHETIC)') RETURNING id"
+    ).fetchone()[0]
 
-def seed_vendors(conn):
+def seed_demo_user(conn, company_id):
+    """Login for the demo company. SYNTHETIC: demo@paymaster.example.com / demo-password-123"""
+    conn.execute(
+        "INSERT INTO users (company_id, email, password_hash, full_name, role) "
+        "VALUES (%s, 'demo@paymaster.example.com', %s, 'Demo Admin', 'admin')",
+        (company_id, hash_password("demo-password-123")),
+    )
+
+def seed_vendors(conn, company_id):
     """Insert vendors plus their current payout email. Returns {name: vendor_id}."""
     ids = {}
     for name, country, email in VENDORS:
         vendor_id = conn.execute(
-            "INSERT INTO vendors (name, country) VALUES (%s, %s) RETURNING id",
-            (name, country),
+            "INSERT INTO vendors (name, country, company_id) VALUES (%s, %s, %s) RETURNING id",
+            (name, country, company_id),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source) "
@@ -65,14 +79,14 @@ PO_PLAN = [
 ]
 
 
-def seed_pos_and_deliveries(conn, vendor_ids):
+def seed_pos_and_deliveries(conn, company_id, vendor_ids):
     """One PO and one full delivery per vendor in PO_PLAN. Returns {vendor name: po_id}."""
     po_ids = {}
     for name, po_number, amount, description in PO_PLAN:
         po_id = conn.execute(
-            "INSERT INTO purchase_orders (po_number, vendor_id, amount) "
-            "VALUES (%s, %s, %s) RETURNING id",
-            (po_number, vendor_ids[name], amount),
+            "INSERT INTO purchase_orders (po_number, vendor_id, amount, company_id) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (po_number, vendor_ids[name], amount, company_id),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO deliveries (po_id, description, amount) VALUES (%s, %s, %s)",
@@ -81,7 +95,7 @@ def seed_pos_and_deliveries(conn, vendor_ids):
         po_ids[name] = po_id
     return po_ids
 
-def seed_invoices(conn, vendor_ids, po_ids):
+def seed_invoices(conn, company_id, vendor_ids, po_ids):
     """Insert the invoices, including the planted traps. Returns how many were inserted."""
     email = {name: e for name, _, e in VENDORS}  # each vendor's email on file
 
@@ -108,9 +122,9 @@ def seed_invoices(conn, vendor_ids, po_ids):
          conn.execute(
             # clock_timestamp(), not now(): now() is frozen for the whole transaction,
             # so every invoice gets the same received_at.
-            "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, destination_email, status, received_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, clock_timestamp())",
-            (vendor_ids[vendor], po_ids.get(po_vendor), number, amount, dest_email, status),
+            "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, destination_email, status, received_at, company_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, clock_timestamp(), %s)",
+            (vendor_ids[vendor], po_ids.get(po_vendor), number, amount, dest_email, status, company_id),
         )
     return len(plan)
 
@@ -122,14 +136,14 @@ FOREIGN_PLAN = [
 ]
 
 
-def seed_foreign_currency(conn, vendor_ids):
+def seed_foreign_currency(conn, company_id, vendor_ids):
     """PO, full delivery and invoice, all in the vendor's currency. Returns how many invoices were added."""
     email = {name: e for name, _, e in VENDORS}
     for vendor, po_number, inv_number, amount, currency, description in FOREIGN_PLAN:
         po_id = conn.execute(
-            "INSERT INTO purchase_orders (po_number, vendor_id, amount, currency) "
-            "VALUES (%s, %s, %s, %s) RETURNING id",
-            (po_number, vendor_ids[vendor], amount, currency),
+            "INSERT INTO purchase_orders (po_number, vendor_id, amount, currency, company_id) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (po_number, vendor_ids[vendor], amount, currency, company_id),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO deliveries (po_id, description, amount) VALUES (%s, %s, %s)",
@@ -137,9 +151,9 @@ def seed_foreign_currency(conn, vendor_ids):
         )
         conn.execute(
             "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, currency, "
-            "destination_email, status, received_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, 'received', clock_timestamp())",
-            (vendor_ids[vendor], po_id, inv_number, amount, currency, email[vendor]),
+            "destination_email, status, received_at, company_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'received', clock_timestamp(), %s)",
+            (vendor_ids[vendor], po_id, inv_number, amount, currency, email[vendor], company_id),
         )
     return len(FOREIGN_PLAN)
 
@@ -147,9 +161,11 @@ def main():
     skip_invoices = "--no-invoices" in sys.argv  # intake creates the invoices from documents
     with get_conn() as conn:
         wipe(conn)
-        vendor_ids = seed_vendors(conn)
-        po_ids = seed_pos_and_deliveries(conn, vendor_ids)
-        n_invoices = 0 if skip_invoices else seed_invoices(conn, vendor_ids, po_ids) + seed_foreign_currency(conn, vendor_ids)
+        company_id = seed_company(conn)
+        seed_demo_user(conn, company_id)
+        vendor_ids = seed_vendors(conn, company_id)
+        po_ids = seed_pos_and_deliveries(conn, company_id, vendor_ids)
+        n_invoices = 0 if skip_invoices else seed_invoices(conn, company_id, vendor_ids, po_ids) + seed_foreign_currency(conn, company_id, vendor_ids)
         print(f"Seeded {len(vendor_ids)} SYNTHETIC vendors, {len(po_ids)} POs with deliveries, {n_invoices} invoices")
 
 

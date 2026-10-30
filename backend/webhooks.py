@@ -95,13 +95,14 @@ from backend.console_api import router as console_router
 from backend.audit_api import router as audit_router 
 from backend.chat_api import router as chat_router
 from backend.advise_api import router as advise_router  
+from backend.auth_api import router as auth_router
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5500", "http://127.0.0.1:5500"],
     allow_methods=["GET", "POST"],
-    allow_headers=["X-Review-Token", "Content-Type"],
+    allow_headers=["X-Review-Token", "Authorization", "Content-Type"],
 )
 app.include_router(router)
 app.include_router(review_router)
@@ -112,3 +113,4 @@ app.include_router(console_router)
 app.include_router(audit_router) 
 app.include_router(chat_router)
 app.include_router(advise_router)
+app.include_router(auth_router)
