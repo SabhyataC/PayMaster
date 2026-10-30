@@ -23,8 +23,8 @@ Paymaster runs every invoice through four stages. Every decision is written to t
 
 ## Status
 
-- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, case memory, Pay stage, webhooks, ledger, audit log, Reconcile (settlements, exceptions, AI explainer), first AG Grid console.
-- Next: console polish (invoices, payments, audit timeline), cash advice, demo video.
+- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, case memory, Pay stage, webhooks, ledger, audit log, Reconcile (settlements, exceptions, AI explainer), AG Grid console (invoices, review queue, payments and ledger, exceptions, audit timeline, summary cards).
+- Next: light cash-advice panel, end-to-end test, demo video.
 - Results and limits: see `docs/ai-results.md` and `docs/fraud-signals.md`.
 
 ## PayPal sandbox accounts
@@ -166,6 +166,23 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 
 **AI explainer.** `POST /exceptions/{id}/explain` returns a plain-English explanation and one suggested action from a fixed list (`wait`, `cancel_unclaimed`, `contact_vendor`, `recheck_with_paypal`, `escalate`; anything else becomes `escalate`). The AI only explains and suggests: it never pays or cancels. If Gemini fails, a fixed template for the exception type is used. Scores and limits are in `docs/ai-results.md`.
 
+
+## Console
+
+A read-mostly web console for the review queue, invoices, payments and ledger, exceptions and the audit timeline. It is one static file (`console/index.html`, AG Grid from a CDN), no build step.
+
+**The demo runs locally.** The API runs on port 8000 and the console on port 5500, the only origin the API's CORS setting allows.
+
+```powershell
+uvicorn backend.webhooks:app --port 8000        # terminal 1
+cd console; python -m http.server 5500          # terminal 2
+```
+
+Open http://localhost:5500 and paste the `REVIEW_TOKEN` from `.env` into the token box.
+
+Read-only endpoints behind the console (same `X-Review-Token` header): `GET /invoices`, `GET /payments`, `GET /payments/{id}` (settlement, ledger rows and a balanced check), `GET /ledger`, `GET /audit/{invoice_id}` (full timeline; the invoice number also works), `GET /summary`.
+
+
 ## Webhooks
 
 PayPal confirms each payout by calling a public URL, so a local server needs a tunnel.
@@ -202,7 +219,6 @@ python -m backend.investigator INV-1001
 ```
 
 Or run all ten seeded invoices and see one summary line each: `python -m scripts.run_investigator`.
-```
 
 2. **Try to pay it.** A payee we have never paid before is **held** for a human:
 
