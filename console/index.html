@@ -22,6 +22,34 @@
         #grid {
             height: 70vh;
         }
+
+        .tbl {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        .tbl th,
+        .tbl td {
+            border: 1px solid #ddd;
+            padding: 4px 8px;
+            text-align: left;
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        .panel {
+            display: none;
+            margin: 12px 0;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        input,
+        textarea,
+        button {
+            font-family: inherit;
+        }
     </style>
 </head>
 
@@ -29,6 +57,7 @@
     <h2>PayMaster Console</h2>
     <div style="margin-bottom:12px"><input id="token" type="password" placeholder="Paste review token here" size="40">
     </div>
+    <div id="cards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"></div>
     <h3>Invoices</h3>
     <div><button id="loadi">Load invoices</button> <span id="imsg"></span></div>
     <div id="igrid" class="ag-theme-quartz" style="height:35vh"></div>
@@ -42,10 +71,17 @@
         <span id="msg"></span>
     </div>
     <div id="grid" class="ag-theme-quartz"></div>
+    <div id="xdetail" class="panel"></div>
     <h3>Review queue</h3>
     <div id="bar2"><button id="loadq">Load review queue</button> <span id="qmsg"></span></div>
     <div id="qgrid" class="ag-theme-quartz" style="height:40vh"></div>
     <div id="detail" style="margin:12px 0;padding:12px;border:1px solid #ccc;border-radius:6px;display:none"></div>
+    <div id="audit" class="panel"></div>
+
+    <h3>Payments and ledger</h3>
+    <div><button id="loadp">Load payments</button> <span id="pmsg"></span></div>
+    <div id="pgrid" class="ag-theme-quartz" style="height:30vh"></div>
+    <div id="pdetail" class="panel"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
@@ -59,7 +95,7 @@
                 const b = document.createElement("button");
                 b.textContent = label;
                 b.style.marginRight = "6px";
-                b.addEventListener("click", fn);
+                b.addEventListener("click", (ev) => { ev.stopPropagation(); fn(); });
                 box.appendChild(b);
             };
             mk("Explain", () => act(p.data.id, "explain"));
@@ -93,6 +129,7 @@
                 return;
             }
             await loadExceptions();
+            if (openExc === id) showException(id);
         }
 
         const gridApi = agGrid.createGrid($("grid"), {
@@ -107,7 +144,7 @@
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
-
+            onRowClicked: (e) => showException(e.data.id),
         });
 
         async function loadExceptions() {
@@ -225,7 +262,7 @@
                 { field: "status", width: 100 },
                 { field: "stage", width: 120 },
                 { headerName: "Why", valueGetter: (p) => (p.data.reasons || []).join(", "), flex: 1 },
-                { headerName: "Actions", width: 200, sortable: false, filter: false, cellRenderer: queueActions },
+                { headerName: "Actions", width: 270, sortable: false, filter: false, cellRenderer: queueActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
@@ -253,6 +290,7 @@
                 b.addEventListener("click", fn); box.appendChild(b);
             };
             const id = p.data.invoice_id;
+            mk("Audit", (ev) => { ev.stopPropagation(); showAudit(id); });
             if (p.data.status === "held") {
                 mk("Approve", () => decide(id, "approve"));
                 mk("Reject", () => decide(id, "reject"));
@@ -312,7 +350,10 @@
             $("imsg").textContent = m;
         }
 
-        const BADGE = { approved: "#2e7d32", held: "#ed6c02", rejected: "#c62828", paid: "#1565c0", needs_review: "#6a1b9a" };
+        const BADGE = {
+            approved: "#2e7d32", held: "#ed6c02", rejected: "#c62828", paid: "#1565c0", needs_review: "#6a1b9a",
+            success: "#2e7d32", submitted: "#ed6c02", pending: "#ed6c02", unclaimed: "#c62828", failed: "#c62828", unknown: "#c62828"
+        };
         function badge(p) {
             const s = document.createElement("span");
             s.textContent = p.value || "";
@@ -322,6 +363,10 @@
 
         function invoiceActions(p) {
             const box = document.createElement("span");
+            const au = document.createElement("button");
+            au.textContent = "Audit"; au.style.marginRight = "6px";
+            au.addEventListener("click", () => showAudit(p.data.id));
+            box.appendChild(au);
             if (p.data.status === "approved") {
                 const b = document.createElement("button");
                 b.textContent = "Pay";
@@ -343,7 +388,7 @@
                 { field: "status", width: 130, cellRenderer: badge },
                 { field: "fraud_risk", headerName: "Fraud risk", width: 120 },
                 { field: "received_at", headerName: "Received", flex: 1 },
-                { headerName: "Actions", width: 110, sortable: false, filter: false, cellRenderer: invoiceActions },
+                { headerName: "Actions", width: 190, sortable: false, filter: false, cellRenderer: invoiceActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
@@ -357,12 +402,189 @@
                 if (!r.ok) { $("imsg").textContent = `Error ${r.status}`; return; }
                 const data = await r.json();
                 iApi.setGridOption("rowData", data.items);
-                $("imsg").textContent = `${data.items.length} invoices`;
+                $("imsg").textContent = data.items.length ? `${data.items.length} invoices` : "No invoices yet.";
+                loadSummary();
             } catch (e) {
                 $("imsg").textContent = "Cannot reach the API (is uvicorn running?)";
             }
         }
+
         $("loadi").addEventListener("click", loadInvoices);
+
+        // ---- Summary cards ----
+        function card(title, body, warn) {
+            return `<div style="min-width:150px;padding:10px 14px;border:1px solid ${warn ? "#ed6c02" : "#ccc"};border-radius:6px">
+        <div style="font-size:12px;color:#666">${esc(title)}</div>
+        <div style="font-size:22px;font-weight:600">${body}</div></div>`;
+        }
+        function renderCards(s) {
+            const byStatus = Object.entries(s.invoices_by_status).map(([k, n]) => `${esc(k)} ${n}`).join(", ") || "none yet";
+            const paid = Object.entries(s.paid_total)
+                .map(([c, t]) => `${Number(t).toLocaleString(undefined, { minimumFractionDigits: 2 })} ${esc(c)}`).join("<br>") || "0";
+            return card("Invoices", `${s.invoices_total}<div style="font-size:12px;font-weight:400">${byStatus}</div>`)
+                + card("Held for a person", s.held_count, s.held_count > 0)
+                + card("Paid total", paid)
+                + card("Open exceptions", s.open_exceptions, s.open_exceptions > 0)
+                + card("Documents to fix", s.needs_review_documents, s.needs_review_documents > 0);
+        }
+        async function loadSummary() {
+            try {
+                const r = await fetch(`${API}/summary`, { headers: hdr() });
+                if (!r.ok) { $("cards").innerHTML = `<i>Summary unavailable (error ${r.status})</i>`; return; }
+                $("cards").innerHTML = renderCards(await r.json());
+            } catch (e) { $("cards").innerHTML = "<i>Summary unavailable: cannot reach the API</i>"; }
+        }
+
+        // ---- Audit timeline: why was this held or paid ----
+        function renderAudit(a) {
+            const rows = a.events.map((e) => `<tr><td>${esc(e.at.slice(0, 19).replace("T", " "))}</td><td>${esc(e.stage)}</td>
+        <td>${esc(e.decision)}</td><td>${esc(e.actor)}</td><td>${esc(e.reason)}</td></tr>`).join("");
+            return `<h3>Audit timeline: ${esc(a.invoice_number)} (${esc(a.vendor)}), now <b>${esc(a.status)}</b></h3>`
+                + (rows ? `<table class="tbl"><thead><tr><th>Time (UTC)</th><th>Stage</th><th>Decision</th><th>By</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table>`
+                    : "<p><i>No audit events yet for this invoice.</i></p>");
+        }
+        async function showAudit(ref) {
+            const box = $("audit");
+            box.style.display = "block";
+            box.textContent = "Loading audit timeline...";
+            try {
+                const r = await fetch(`${API}/audit/${encodeURIComponent(ref)}`, { headers: hdr() });
+                const a = await r.json().catch(() => ({}));
+                if (!r.ok) { box.textContent = `Error ${r.status}: ${errText(a)}`; return; }
+                box.innerHTML = renderAudit(a);
+                box.scrollIntoView({ behavior: "smooth" });
+            } catch (e) { box.textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+
+        // ---- Payments and ledger ----
+        const money = (v, c) => v == null ? "-" : `${Number(v).toFixed(2)} ${esc(c || "")}`;
+        function renderPayment(d) {
+            const p = d.payment, s = d.settlement;
+            const settle = s
+                ? `<p>Settlement: we sent ${money(s.amount_sent, s.currency_sent)}, the vendor received ${money(s.amount_received, s.currency_received)},
+           PayPal fee ${money(s.fee_amount, s.fee_currency)}, FX rate ${s.fx_rate == null ? "none (same currency)" : esc(s.fx_rate)}.</p>`
+                : "<p><i>Not settled yet: PayPal has not confirmed this payment as successful, so there is no settlement or ledger yet.</i></p>";
+            const rows = d.ledger.map((e) => `<tr><td>${esc(e.entry_type)}</td><td>${esc(e.account)}</td><td>${esc(e.direction)}</td>
+        <td>${money(e.amount, e.currency)}</td><td>${esc(e.description)}</td></tr>`).join("");
+            const sums = Object.entries(d.balance).map(([c, b]) =>
+                `${b.debit.toFixed(2)} ${esc(c)} debit vs ${b.credit.toFixed(2)} ${esc(c)} credit`).join("; ");
+            const check = d.balanced === null ? ""
+                : d.balanced ? `<p style="color:#2e7d32"><b>Balanced:</b> ${sums}</p>`
+                    : `<p style="color:#c62828"><b>NOT balanced:</b> ${sums}. Investigate before trusting these books.</p>`;
+            return `<h3>Payment for ${esc(p.invoice_number)} (${esc(p.vendor)}): ${money(p.amount, p.currency)}, <b>${esc(p.status)}</b></h3>
+        <p>Sent to ${esc(p.destination_email)}. PayPal batch ${esc(p.paypal_batch_id || "not assigned yet")}. <button id="p_audit">Show audit timeline</button></p>
+        ${settle}
+        ${rows ? `<table class="tbl"><thead><tr><th>Entry</th><th>Account</th><th>Direction</th><th>Amount</th><th>Description</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+        ${check}`;
+        }
+        async function showPayment(id) {
+            const box = $("pdetail");
+            box.style.display = "block";
+            box.textContent = "Loading payment...";
+            try {
+                const r = await fetch(`${API}/payments/${encodeURIComponent(id)}`, { headers: hdr() });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { box.textContent = `Error ${r.status}: ${errText(d)}`; return; }
+                box.innerHTML = renderPayment(d);
+                $("p_audit").addEventListener("click", () => showAudit(d.payment.invoice_id));
+            } catch (e) { box.textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+
+        const pApi = agGrid.createGrid($("pgrid"), {
+            columnDefs: [
+                { field: "invoice_number", headerName: "Invoice", width: 130 },
+                { field: "amount", width: 110 },
+                { field: "currency", width: 100 },
+                { field: "status", width: 130, cellRenderer: badge },
+                { field: "paypal_batch_id", headerName: "PayPal batch", width: 170 },
+                { field: "created_at", headerName: "Created", flex: 1 },
+            ],
+            defaultColDef: { sortable: true, filter: true, resizable: true },
+            rowData: [],
+            onRowClicked: (e) => showPayment(e.data.id),
+        });
+        async function loadPayments() {
+            $("pmsg").textContent = "Loading...";
+            try {
+                const r = await fetch(`${API}/payments`, { headers: hdr() });
+                if (!r.ok) { $("pmsg").textContent = `Error ${r.status}`; return; }
+                const data = await r.json();
+                pApi.setGridOption("rowData", data.items);
+                $("pmsg").textContent = data.items.length ? `${data.items.length} payments. Click one for its settlement and ledger.` : "No payments yet.";
+            } catch (e) { $("pmsg").textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+        $("loadp").addEventListener("click", loadPayments);
+        // ---- Exception detail: explanation, suggested action, resolve form ----
+        let openExc = null;
+        const ACTION_TEXT = {
+            wait: "Wait. PayPal has not finished yet; check again later.",
+            recheck_with_paypal: "Re-check this payout in the PayPal dashboard.",
+            contact_vendor: "Contact the vendor to confirm their PayPal email.",
+            cancel_unclaimed: "A person may cancel the unclaimed payout in PayPal.",
+            escalate: "Escalate to a person. Do not resolve this without checking PayPal.",
+        };
+        function renderException(x) {
+            const ex = x.explanation;
+            const ai = ex
+                ? `<p><b>What happened:</b> ${esc(ex.explanation)}</p>
+           <p><b>Suggested action:</b> ${esc(ACTION_TEXT[ex.suggested_action] || ex.suggested_action)}</p>
+           <p><b>Next step for a person:</b> ${esc(ex.next_step)}</p>
+           <p style="font-size:12px;color:#666">Written by ${ex.source === "template" ? "a fixed template (AI was not used)" : "AI"}. It only suggests; it never pays or cancels anything.</p>`
+                : `<p><i>No explanation yet. Click "Explain".</i></p>`;
+            const facts = Object.entries(x.detail || {}).map(([k, v]) =>
+                `<tr><td>${esc(k)}</td><td>${esc(typeof v === "object" ? JSON.stringify(v) : v)}</td></tr>`).join("");
+            const resolve = x.status === "open"
+                ? `<h4>Resolve</h4>
+           <p>Only after you have checked the payout in PayPal.<br>
+           <input id="x_by" placeholder="Your name"><br>
+           <textarea id="x_note" rows="2" cols="60" placeholder="What did you check in PayPal? (at least 10 characters)"></textarea><br>
+           <button id="x_resolve">Resolve exception</button> <span id="x_msg"></span></p>`
+                : `<p><b>Resolved</b> by ${esc(x.resolved_by)} at ${esc(String(x.resolved_at).slice(0, 19).replace("T", " "))}: ${esc(x.note)}</p>`;
+            return `<h3>Exception #${esc(x.id)}: ${esc(x.type)} (<b>${esc(x.status)}</b>)</h3>
+        <p><button id="x_explain">Explain</button>
+        ${x.payment_id ? '<button id="x_audit">Show invoice audit timeline</button>' : "<i>No payment attached: PayPal shows a payout we have no record of.</i>"}</p>
+        ${ai}
+        ${facts ? `<table class="tbl"><thead><tr><th>Fact</th><th>Value</th></tr></thead><tbody>${facts}</tbody></table>` : ""}
+        ${resolve}`;
+        }
+        async function showException(id) {
+            openExc = id;
+            const box = $("xdetail");
+            box.style.display = "block";
+            box.textContent = "Loading exception...";
+            try {
+                const r = await fetch(`${API}/exceptions/${id}`, { headers: hdr() });
+                const x = await r.json().catch(() => ({}));
+                if (!r.ok) { box.textContent = `Error ${r.status}: ${errText(x)}`; return; }
+                box.innerHTML = renderException(x);
+                $("x_explain").addEventListener("click", () => act(id, "explain"));
+                if ($("x_audit")) $("x_audit").addEventListener("click", () => auditForPayment(x.payment_id));
+                if ($("x_resolve")) $("x_resolve").addEventListener("click", () => submitResolve(id));
+            } catch (e) { box.textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+        async function submitResolve(id) {
+            const by = $("x_by").value.trim(), note = $("x_note").value.trim();
+            if (!by) { $("x_msg").textContent = "Type your name."; return; }
+            if (note.length < 10) { $("x_msg").textContent = "Write at least 10 characters about what you checked in PayPal."; return; }
+            $("x_msg").textContent = "Saving...";
+            try {
+                const r = await fetch(`${API}/exceptions/${id}/resolve`, {
+                    method: "POST", headers: hdr(), body: JSON.stringify({ resolved_by: by, note }),
+                });
+                if (!r.ok) { const e = await r.json().catch(() => ({})); $("x_msg").textContent = `Error ${r.status}: ${errText(e)}`; return; }
+                await loadExceptions();
+                showException(id);
+            } catch (e) { $("x_msg").textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+        async function auditForPayment(paymentId) {
+            try {
+                const r = await fetch(`${API}/payments/${encodeURIComponent(paymentId)}`, { headers: hdr() });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { $("msg").textContent = `Error ${r.status}: ${errText(d)}`; return; }
+                showAudit(d.payment.invoice_id);
+            } catch (e) { $("msg").textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+
         $("token").value = sessionStorage.getItem("pm_token") || "";
     </script>
 </body>
