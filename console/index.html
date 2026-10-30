@@ -89,6 +89,10 @@
     </div>
     <div id="answer" class="panel"></div>
 
+    <h3>Advise</h3>
+    <div><button id="loada">Load advice</button> <span id="amsg"></span></div>
+    <div id="advice" class="panel"></div>
+
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
@@ -610,6 +614,21 @@
         $("ask").addEventListener("click", askChat);
         $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") askChat(); });
 
+
+        async function loadAdvice() {
+            $("amsg").textContent = "Loading...";
+            try {
+                const r = await fetch(`${API}/advise`, { headers: hdr() });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { $("amsg").textContent = `Error ${r.status}: ${errText(d)}`; return; }
+                $("amsg").textContent = "";
+                $("advice").innerHTML = d.tips.length ? d.tips.map((t) =>
+                    `<p><b>[${esc(t.priority)}]</b> ${esc(t.text)}<br><small>Evidence: ${t.evidence.map(esc).join(", ")}</small></p>`
+                ).join("") : "<p><i>No tips: nothing in the data needs attention.</i></p>";
+                $("advice").style.display = "block";
+            } catch (e) { $("amsg").textContent = "Cannot reach the API (is uvicorn running?)"; }
+        }
+        $("loada").addEventListener("click", loadAdvice);
 
         $("token").value = sessionStorage.getItem("pm_token") || "";
     </script>
