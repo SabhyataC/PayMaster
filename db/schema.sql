@@ -237,3 +237,42 @@ LEFT JOIN LATERAL (
 
 -- Needs-review corrections: the first AI-extracted values are kept here, never overwritten.
 ALTER TABLE extractions ADD COLUMN IF NOT EXISTS original_extracted jsonb;
+
+-- Week 2: companies and users
+CREATE TABLE IF NOT EXISTS companies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    company_id UUID NOT NULL REFERENCES companies (id),
+    email TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'reviewer')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (lower(email));
+
+-- company_id on the top-level tables (nullable for now; NOT NULL after seed.py is updated)
+ALTER TABLE vendors         ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE payments        ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE ledger_entries  ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE audit_log       ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE exceptions      ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE reviews         ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE extractions     ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+-- PO numbers must be unique per company, not globally
+ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS purchase_orders_po_number_key;
+CREATE UNIQUE INDEX IF NOT EXISTS po_unique_per_company ON purchase_orders (company_id, po_number);
+
+CREATE INDEX IF NOT EXISTS idx_vendors_company ON vendors (company_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices (company_id);
+CREATE INDEX IF NOT EXISTS idx_payments_company ON payments (company_id);
+CREATE INDEX IF NOT EXISTS idx_audit_company ON audit_log (company_id);
