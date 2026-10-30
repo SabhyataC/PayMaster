@@ -93,7 +93,8 @@ from backend.exceptions_api import router as exceptions_router
 from fastapi.middleware.cors import CORSMiddleware
 from backend.console_api import router as console_router
 from backend.audit_api import router as audit_router 
-from backend.chat_api import router as chat_router  
+from backend.chat_api import router as chat_router
+from backend.advise_api import router as advise_router  
 
 app = FastAPI()
 app.add_middleware(
@@ -109,4 +110,5 @@ app.include_router(run_router)
 app.include_router(corrections_router)
 app.include_router(console_router)
 app.include_router(audit_router) 
-app.include_router(chat_router) 
+app.include_router(chat_router)
+app.include_router(advise_router)
