@@ -19,15 +19,13 @@ MIN_AGE_HOURS = 3
 
 
 def add_exception(conn, payment_id, type_, detail):
-    """Log an open exception. Returns True if it is new, False if the same
-    problem is already open for this payment (so re-running never duplicates)."""
     with conn.cursor() as cur:
         cur.execute(
-            """INSERT INTO exceptions (payment_id, type, detail)
-               VALUES (%s, %s, %s::jsonb)
+            """INSERT INTO exceptions (payment_id, type, detail, company_id)
+               VALUES (%s, %s, %s::jsonb, (SELECT company_id FROM payments WHERE id = %s))
                ON CONFLICT (payment_id, type) WHERE status = 'open' DO NOTHING
                RETURNING id""",
-            (payment_id, type_, json.dumps(detail)),
+            (payment_id, type_, json.dumps(detail), payment_id),
         )
         return cur.fetchone() is not None
 
@@ -122,22 +120,20 @@ def detect_paypal_disagreements(conn):
 
 PAYOUT_EVENT_CODES = ("T0001",)  # T0001 = the payout itself (T1503/T1105 are holds)
 
-def add_orphan_exception(conn, txn_id, detail):
-    """Like add_exception, but for exceptions with no payment_id. The unique index
-    can't dedupe those, so we look for an open one with the same transaction id."""
+def add_orphan_exception(conn, txn_id, detail, company_id):
     with conn.cursor() as cur:
         cur.execute(
             """SELECT 1 FROM exceptions
                WHERE type = 'unknown_payout' AND status = 'open'
-                 AND detail->>'transaction_id' = %s""",
-            (txn_id,),
+                 AND detail->>'transaction_id' = %s AND company_id = %s""",
+            (txn_id, company_id),
         )
         if cur.fetchone():
             return False
         cur.execute(
-            """INSERT INTO exceptions (payment_id, type, detail)
-               VALUES (NULL, 'unknown_payout', %s::jsonb)""",
-            (json.dumps(detail),),
+            """INSERT INTO exceptions (payment_id, type, detail, company_id)
+               VALUES (NULL, 'unknown_payout', %s::jsonb, %s)""",
+            (json.dumps(detail), company_id),
         )
         return True
 

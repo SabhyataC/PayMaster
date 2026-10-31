@@ -162,10 +162,11 @@ def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=Fal
     )
     conn.execute(
         """INSERT INTO reviews (invoice_id, original_ai_decision, human_decision, reviewer, note,
-                                confirmed_with_vendor, status_before, status_after)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                                confirmed_with_vendor, status_before, status_after, company_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                   (SELECT company_id FROM invoices WHERE id = %s))""",
         (invoice_id, (verify or {}).get("decision"), decision, reviewer, note,
-         bool(confirmed_with_vendor), before, new_status),
+         bool(confirmed_with_vendor), before, new_status, invoice_id),
     )
     conn.commit()
     return {"invoice_id": str(invoice_id), "status_before": before, "status": new_status,

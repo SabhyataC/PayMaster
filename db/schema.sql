@@ -276,3 +276,5 @@ CREATE INDEX IF NOT EXISTS idx_vendors_company ON vendors (company_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices (company_id);
 CREATE INDEX IF NOT EXISTS idx_payments_company ON payments (company_id);
 CREATE INDEX IF NOT EXISTS idx_audit_company ON audit_log (company_id);
+
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);

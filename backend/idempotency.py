@@ -40,12 +40,13 @@ def reserve_payment(conn, *, invoice_id, destination_email, amount, currency="US
     row = conn.execute(
         """
         INSERT INTO payments
-            (invoice_id, idempotency_key, destination_email, amount, currency, attempt)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (invoice_id, idempotency_key, destination_email, amount, currency, attempt, company_id)
+        VALUES (%s, %s, %s, %s, %s, %s,
+                (SELECT company_id FROM invoices WHERE id = %s))
         ON CONFLICT DO NOTHING
         RETURNING id, status
         """,
-        (invoice_id, key, destination_email, amount, currency, attempt),
+        (invoice_id, key, destination_email, amount, currency, attempt, invoice_id),
     ).fetchone()
 
     if row:  # we just created it

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: Create your company</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: #f7f6f2;
+            color: #1c1b18;
+            font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 380px;
+            background: #fff;
+            border: 1px solid #e4e2da;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 16px;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            margin: 0 0 4px;
+        }
+
+        .sub {
+            color: #6b6a63;
+            margin: 0 0 16px;
+            font-size: .9rem;
+        }
+
+        label {
+            display: block;
+            font-size: .85rem;
+            margin: 12px 0 4px;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 10px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        button.main {
+            width: 100%;
+            margin-top: 18px;
+            padding: 10px;
+            border: 0;
+            border-radius: 8px;
+            background: #0b6b4f;
+            color: #fff;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.main:disabled {
+            opacity: .6;
+            cursor: default;
+        }
+
+        .err {
+            color: #b4531a;
+            font-size: .9rem;
+            margin-top: 12px;
+            min-height: 1.2em;
+        }
+
+        .out {
+            margin-top: 14px;
+            text-align: center;
+            font-size: .85rem;
+            color: #6b6a63;
+        }
+
+        .out a {
+            color: #0b6b4f;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1>Create your company</h1>
+        <p class="sub" id="sub">One last step before you start</p>
+        <label for="company">Company name</label>
+        <input id="company" autocomplete="organization" autofocus>
+        <button class="main" id="go">Create company</button>
+        <div class="err" id="err"></div>
+        <div class="out"><a id="logout">Log out</a></div>
+    </div>
+
+    <script>
+        const API = "http://localhost:8000";   // same value as in index.html
+        const $ = id => document.getElementById(id);
+        const jwt = localStorage.getItem("pm_jwt");
+        const user = JSON.parse(localStorage.getItem("pm_user") || "null");
+
+        if (!jwt) location.replace("login.html");
+        else if (user && user.company_id) location.replace("index.html");
+        else if (user) $("sub").textContent = "Welcome, " + user.full_name + ". One last step before you start";
+
+        function logout() {
+            localStorage.removeItem("pm_jwt");
+            localStorage.removeItem("pm_user");
+            location.replace("login.html");
+        }
+        $("logout").onclick = logout;
+
+        async function submit() {
+            $("err").textContent = "";
+            $("go").disabled = true;
+            try {
+                const r = await fetch(`${API}/auth/company`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + jwt },
+                    body: JSON.stringify({ name: $("company").value }),
+                });
+                const data = await r.json().catch(() => ({}));
+                if (r.status === 401) return logout();
+                if (!r.ok) {
+                    $("err").textContent = typeof data.detail === "string"
+                        ? data.detail : "Please check the company name";
+                    return;
+                }
+                localStorage.setItem("pm_user", JSON.stringify(data.user));
+                location.replace("index.html");
+            } catch (e) {
+                $("err").textContent = "Cannot reach the server. Is the API running?";
+            } finally {
+                $("go").disabled = false;
+            }
+        }
+        $("go").onclick = submit;
+        document.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+    </script>
+</body>
+
+</html>
