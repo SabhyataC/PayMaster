@@ -178,12 +178,12 @@ CREATE TABLE IF NOT EXISTS exceptions (
 CREATE UNIQUE INDEX IF NOT EXISTS exceptions_one_open
     ON exceptions (payment_id, type) WHERE status = 'open';
 
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE payments
+ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 1;
 
 -- One payment per invoice per attempt number. This is the database-level
 -- never-pay-twice guard, even if two requests arrive at the same moment.
-CREATE UNIQUE INDEX IF NOT EXISTS payments_invoice_attempt
-    ON payments (invoice_id, attempt);
+CREATE UNIQUE INDEX IF NOT EXISTS payments_invoice_attempt ON payments (invoice_id, attempt);
 
 ALTER TABLE exceptions ADD COLUMN IF NOT EXISTS explanation JSONB;
 
@@ -192,7 +192,9 @@ CREATE TABLE IF NOT EXISTS reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
     invoice_id UUID NOT NULL REFERENCES invoices (id),
     original_ai_decision TEXT, -- approve / hold / reject, from the Verify audit row
-    human_decision TEXT NOT NULL CHECK (human_decision IN ('approve', 'reject')),
+    human_decision TEXT NOT NULL CHECK (
+        human_decision IN ('approve', 'reject')
+    ),
     reviewer TEXT NOT NULL,
     note TEXT NOT NULL,
     confirmed_with_vendor BOOLEAN NOT NULL DEFAULT false,
@@ -205,38 +207,55 @@ CREATE INDEX IF NOT EXISTS idx_reviews_invoice ON reviews (invoice_id);
 
 -- Case memory: one row per past human review, with the signals that fired and the outcome.
 CREATE OR REPLACE VIEW precedents AS
-SELECT r.id AS review_id,
-       r.invoice_id,
-       i.vendor_id,
-       i.invoice_number,
-       r.original_ai_decision AS ai_decision,
-       r.human_decision,
-       r.reviewer,
-       r.note,
-       r.created_at AS reviewed_at,
-       COALESCE(
-           (SELECT array_agg(s ORDER BY s)
-            FROM jsonb_array_elements_text(f.inputs -> 'signals') AS s),
-           ARRAY[]::text[]) AS signals,
-       CASE
-           WHEN r.human_decision = 'reject' THEN 'rejected'
-           WHEN EXISTS (SELECT 1 FROM exceptions e
-                        JOIN payments p ON p.id = e.payment_id
-                        WHERE p.invoice_id = i.id) THEN 'exception'
-           WHEN i.status = 'paid' THEN 'paid_fine'
-           ELSE 'not_paid_yet'
-       END AS outcome
+SELECT
+    r.id AS review_id,
+    r.invoice_id,
+    i.vendor_id,
+    i.invoice_number,
+    r.original_ai_decision AS ai_decision,
+    r.human_decision,
+    r.reviewer,
+    r.note,
+    r.created_at AS reviewed_at,
+    COALESCE(
+        (
+            SELECT array_agg(
+                    s
+                    ORDER BY s
+                )
+            FROM jsonb_array_elements_text(f.inputs -> 'signals') AS s
+        ),
+        ARRAY[]::text []
+    ) AS signals,
+    CASE
+        WHEN r.human_decision = 'reject' THEN 'rejected'
+        WHEN EXISTS (
+            SELECT 1
+            FROM exceptions e
+                JOIN payments p ON p.id = e.payment_id
+            WHERE
+                p.invoice_id = i.id
+        ) THEN 'exception'
+        WHEN i.status = 'paid' THEN 'paid_fine'
+        ELSE 'not_paid_yet'
+    END AS outcome
 FROM reviews r
-JOIN invoices i ON i.id = r.invoice_id
-LEFT JOIN LATERAL (
-    SELECT a.inputs FROM audit_log a
-    WHERE a.entity_id = r.invoice_id AND a.stage = 'fraud'
-      AND a.reason LIKE 'Fraud risk %' AND a.created_at <= r.created_at
-    ORDER BY a.id DESC LIMIT 1
-) f ON true;
+    JOIN invoices i ON i.id = r.invoice_id
+    LEFT JOIN LATERAL (
+        SELECT a.inputs
+        FROM audit_log a
+        WHERE
+            a.entity_id = r.invoice_id
+            AND a.stage = 'fraud'
+            AND a.reason LIKE 'Fraud risk %'
+            AND a.created_at <= r.created_at
+        ORDER BY a.id DESC
+        LIMIT 1
+    ) f ON true;
 
 -- Needs-review corrections: the first AI-extracted values are kept here, never overwritten.
-ALTER TABLE extractions ADD COLUMN IF NOT EXISTS original_extracted jsonb;
+ALTER TABLE extractions
+ADD COLUMN IF NOT EXISTS original_extracted jsonb;
 
 -- Week 2: companies and users
 CREATE TABLE IF NOT EXISTS companies (
@@ -247,7 +266,7 @@ CREATE TABLE IF NOT EXISTS companies (
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
-    company_id UUID NOT NULL REFERENCES companies (id),
+    company_id UUID REFERENCES companies (id),
     email TEXT NOT NULL,
     password_hash TEXT NOT NULL,
     full_name TEXT NOT NULL,
@@ -258,23 +277,48 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (lower(email));
 
 -- company_id on the top-level tables (nullable for now; NOT NULL after seed.py is updated)
-ALTER TABLE vendors         ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE payments        ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE ledger_entries  ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE audit_log       ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE exceptions      ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE reviews         ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
-ALTER TABLE extractions     ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE vendors
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE purchase_orders
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE invoices
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE payments
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE ledger_entries
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE audit_log
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE exceptions
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE reviews
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE extractions
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
 
 -- PO numbers must be unique per company, not globally
-ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS purchase_orders_po_number_key;
+ALTER TABLE purchase_orders
+DROP CONSTRAINT IF EXISTS purchase_orders_po_number_key;
+
 CREATE UNIQUE INDEX IF NOT EXISTS po_unique_per_company ON purchase_orders (company_id, po_number);
 
 CREATE INDEX IF NOT EXISTS idx_vendors_company ON vendors (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_payments_company ON payments (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_audit_company ON audit_log (company_id);
 
-ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+ALTER TABLE deliveries
+ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
+
+ALTER TABLE users ALTER COLUMN company_id DROP NOT NULL;

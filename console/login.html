@@ -124,9 +124,6 @@
         const $ = id => document.getElementById(id);
         let mode = "login";
 
-        // already logged in? go straight to the console
-        if (localStorage.getItem("pm_jwt")) location.replace("index.html");
-
         function setMode(m) {
             mode = m;
             $("signupOnly").style.display = m === "signup" ? "block" : "none";
@@ -160,7 +157,7 @@
                 }
                 localStorage.setItem("pm_jwt", data.token);
                 localStorage.setItem("pm_user", JSON.stringify(data.user));
-                location.replace("index.html");
+                goNext(data.user);
             } catch (e) {
                 $("err").textContent = "Cannot reach the server. Is the API running?";
             } finally {
@@ -172,13 +169,7 @@
             location.replace(user && user.company_id ? "index.html" : "company.html");
         }
 
-        // top of script, replaces the old "already logged in" line:
-        if (localStorage.getItem("pm_jwt")) {
-            goNext(JSON.parse(localStorage.getItem("pm_user") || "null"));
-        }
-
-        // inside submit(), replaces location.replace("index.html"):
-        goNext(data.user);
+        if (localStorage.getItem("pm_jwt")) goNext(JSON.parse(localStorage.getItem("pm_user") || "null"));
 
         $("go").onclick = submit;
         document.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });

@@ -13,7 +13,7 @@ from backend.intake import _get_client
 from backend.timeline import find_invoice_id
 
 _sources: ContextVar[list] = ContextVar("sources")
-
+_company: ContextVar[str] = ContextVar("company")
 
 def _cite(kind, ident):
     _sources.get().append(f"{kind}:{ident}")
@@ -44,9 +44,10 @@ def find_invoices(status: str = "", vendor: str = "", limit: int = 20) -> dict:
         rows = _rows(conn, """
             SELECT i.invoice_number, v.name AS vendor, i.amount, i.currency, i.status
             FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-            WHERE (%s = '' OR i.status = %s) AND (%s = '' OR v.name ILIKE %s)
+            WHERE i.company_id = %s
+              AND (%s = '' OR i.status = %s) AND (%s = '' OR v.name ILIKE %s)
             ORDER BY i.received_at DESC LIMIT %s""",
-            (status, status, vendor, f"%{vendor}%", min(limit, 50)))
+            (_company.get(), status, status, vendor, f"%{vendor}%", min(limit, 50)))
     for r in rows:
         _cite("invoice", r["invoice_number"])
     return _out(rows)
@@ -55,7 +56,7 @@ def find_invoices(status: str = "", vendor: str = "", limit: int = 20) -> dict:
 def get_invoice(invoice_number: str) -> dict:
     """Details of one invoice by its number, e.g. INV-6001."""
     with _ro() as conn:
-        inv = find_invoice_id(conn, invoice_number)
+        inv = find_invoice_id(conn, invoice_number, _company.get())
         rows = [] if inv is None else _rows(conn, """
             SELECT i.invoice_number, v.name AS vendor, po.po_number, i.amount, i.currency,
                    i.status, i.destination_email, i.received_at
@@ -76,9 +77,10 @@ def get_payments(invoice_number: str = "", status: str = "") -> dict:
                    s.fee_amount, s.fee_currency, s.fx_rate
             FROM payments p JOIN invoices i ON i.id = p.invoice_id
             LEFT JOIN settlements s ON s.payment_id = p.id
-            WHERE (%s = '' OR i.invoice_number = %s) AND (%s = '' OR p.status = %s)
+            WHERE i.company_id = %s
+              AND (%s = '' OR i.invoice_number = %s) AND (%s = '' OR p.status = %s)
             ORDER BY p.created_at DESC LIMIT 50""",
-            (invoice_number, invoice_number, status, status))
+            (_company.get(), invoice_number, invoice_number, status, status))
     for r in rows:
         _cite("invoice", r["invoice_number"])
     return _out(rows)
@@ -92,7 +94,8 @@ def get_ledger(invoice_number: str) -> dict:
             FROM ledger_entries l
             JOIN payments p ON p.id = l.payment_id
             JOIN invoices i ON i.id = p.invoice_id
-            WHERE i.invoice_number = %s ORDER BY l.created_at, l.id""", (invoice_number,))
+            WHERE i.company_id = %s AND i.invoice_number = %s
+            ORDER BY l.created_at, l.id""", (_company.get(), invoice_number))
     for r in rows:
         _cite("invoice", r["invoice_number"])
     return _out(rows)
@@ -101,7 +104,7 @@ def get_ledger(invoice_number: str) -> dict:
 def get_audit(invoice_number: str) -> dict:
     """The audit timeline of one invoice, in order, with the reason for each step."""
     with _ro() as conn:
-        inv = find_invoice_id(conn, invoice_number)
+        inv = find_invoice_id(conn, invoice_number, _company.get())
         rows = [] if inv is None else _rows(conn, """
             SELECT id, created_at, stage, decision, actor, reason
             FROM audit_log
@@ -122,7 +125,8 @@ def get_exceptions(status: str = "open") -> dict:
             FROM exceptions e
             LEFT JOIN payments p ON p.id = e.payment_id
             LEFT JOIN invoices i ON i.id = p.invoice_id
-            WHERE e.status = %s ORDER BY e.id LIMIT 50""", (status,))
+            WHERE e.company_id = %s AND e.status = %s ORDER BY e.id LIMIT 50""",
+            (_company.get(), status))
     for r in rows:
         _cite("exception", r["id"])
     return _out(rows)
@@ -136,8 +140,8 @@ def vendor_totals(vendor: str) -> dict:
                    COUNT(*) AS payments
             FROM payments p JOIN invoices i ON i.id = p.invoice_id
             JOIN vendors v ON v.id = i.vendor_id
-            WHERE p.status = 'success' AND v.name ILIKE %s
-            GROUP BY v.name, p.currency""", (f"%{vendor}%",))
+            WHERE i.company_id = %s AND p.status = 'success' AND v.name ILIKE %s
+            GROUP BY v.name, p.currency""", (_company.get(), f"%{vendor}%"))
     for r in rows:
         _cite("vendor", r["vendor"])
     return _out(rows)
@@ -163,8 +167,9 @@ FALLBACK = ("The assistant is unavailable right now (AI error or free-tier limit
             "The Invoices, Payments, Exceptions and Audit sections still show everything.")
 
 
-def ask(question: str) -> dict:
+def ask(question: str, company_id: str) -> dict:
     token = _sources.set([])
+    ctoken = _company.set(company_id)
     try:
         cfg = types.GenerateContentConfig(
             system_instruction=SYSTEM, tools=TOOLS, temperature=0,
@@ -184,3 +189,4 @@ def ask(question: str) -> dict:
         return {"answer": FALLBACK, "sources": [], "fallback": True}
     finally:
         _sources.reset(token)
+        _company.reset(ctoken)

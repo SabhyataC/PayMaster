@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Header
 
 from backend.db import get_conn
-from backend.review_api import require_token
 from decimal import Decimal
+from fastapi import APIRouter, Depends, HTTPException
+from backend.auth import current_member
 
-from fastapi import APIRouter, Header, HTTPException
 router = APIRouter(tags=["console"])
 
 
@@ -27,8 +27,7 @@ def _rows(conn, sql, params=()):
 
 
 @router.get("/invoices")
-def invoices(x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
+def invoices(user: dict = Depends(current_member)):
     with get_conn() as conn:
         return {"items": _rows(conn, """
             SELECT i.id, i.invoice_number, v.name AS vendor, i.amount, i.currency, i.status,
@@ -38,23 +37,23 @@ def invoices(x_review_token: str | None = Header(default=None)):
                      ORDER BY a.id DESC LIMIT 1) AS fraud_risk,
                    i.received_at
             FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-            ORDER BY i.received_at DESC""")}
+            WHERE i.company_id = %s
+            ORDER BY i.received_at DESC""", (user["company_id"],))}
 
 
 @router.get("/payments")
-def payments(x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
+def payments(user: dict = Depends(current_member)):
     with get_conn() as conn:
         return {"items": _rows(conn, """
             SELECT p.id, p.invoice_id, i.invoice_number, p.amount, p.currency, p.status,
                    p.paypal_batch_id, p.created_at
             FROM payments p JOIN invoices i ON i.id = p.invoice_id
-            ORDER BY p.created_at DESC""")}
+            WHERE i.company_id = %s
+            ORDER BY p.created_at DESC""", (user["company_id"],))}
 
 
 @router.get("/ledger")
-def ledger(invoice_id: str | None = None, x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
+def ledger(invoice_id: str | None = None, user: dict = Depends(current_member)):
     with get_conn() as conn:
         return {"items": _rows(conn, """
             SELECT l.id, l.payment_id, i.invoice_number, l.entry_type, l.account,
@@ -62,25 +61,28 @@ def ledger(invoice_id: str | None = None, x_review_token: str | None = Header(de
             FROM ledger_entries l
             JOIN payments p ON p.id = l.payment_id
             JOIN invoices i ON i.id = p.invoice_id
-            WHERE (%s::text IS NULL OR i.id::text = %s OR i.invoice_number = %s)
-            ORDER BY l.created_at, l.id""", (invoice_id, invoice_id, invoice_id))}
+            WHERE i.company_id = %s
+              AND (%s::text IS NULL OR i.id::text = %s OR i.invoice_number = %s)
+            ORDER BY l.created_at, l.id""", (user["company_id"], invoice_id, invoice_id, invoice_id))}
 
 
 @router.get("/summary")
-def summary(x_review_token: str | None = Header(default=None)):
+def summary(user: dict = Depends(current_member)):
     """Numbers for the console's summary cards."""
-    require_token(x_review_token)
+    cid = user["company_id"]
     with get_conn() as conn:
         by_status = {s: n for s, n in conn.execute(
-            "SELECT status, count(*) FROM invoices GROUP BY status").fetchall()}
-        # Paid total per currency, from confirmed payments only. Currencies are never mixed.
+            "SELECT status, count(*) FROM invoices WHERE company_id = %s GROUP BY status", (cid,)).fetchall()}
         paid_total = {c: float(t) for c, t in conn.execute(
-            "SELECT currency, COALESCE(sum(amount), 0) FROM payments "
-            "WHERE status = 'success' GROUP BY currency").fetchall()}
+            "SELECT p.currency, COALESCE(sum(p.amount), 0) FROM payments p "
+            "JOIN invoices i ON i.id = p.invoice_id "
+            "WHERE p.status = 'success' AND i.company_id = %s GROUP BY p.currency", (cid,)).fetchall()}
         open_exceptions = conn.execute(
-            "SELECT count(*) FROM exceptions WHERE status = 'open'").fetchone()[0]
+            "SELECT count(*) FROM exceptions e JOIN payments p ON p.id = e.payment_id "
+            "JOIN invoices i ON i.id = p.invoice_id "
+            "WHERE e.status = 'open' AND i.company_id = %s", (cid,)).fetchone()[0]
         needs_review = conn.execute(
-            "SELECT count(*) FROM extractions WHERE status = 'needs_review'").fetchone()[0]
+            "SELECT count(*) FROM extractions WHERE status = 'needs_review' AND company_id = %s", (cid,)).fetchone()[0]
     return {
         "invoices_by_status": by_status,
         "invoices_total": sum(by_status.values()),
@@ -91,9 +93,8 @@ def summary(x_review_token: str | None = Header(default=None)):
     }
 
 @router.get("/payments/{payment_id}")
-def payment_detail(payment_id: str, x_review_token: str | None = Header(default=None)):
+def payment_detail(payment_id: str, user: dict = Depends(current_member)):
     """One payment with its settlement (fx rate, fee) and ledger rows, plus a balance check."""
-    require_token(x_review_token)
     with get_conn() as conn:
         pay = _rows(conn, """
             SELECT p.id, p.invoice_id, i.invoice_number, v.name AS vendor, p.destination_email,
@@ -101,7 +102,7 @@ def payment_detail(payment_id: str, x_review_token: str | None = Header(default=
             FROM payments p
             JOIN invoices i ON i.id = p.invoice_id
             JOIN vendors v ON v.id = i.vendor_id
-            WHERE p.id::text = %s""", (payment_id,))
+            WHERE p.id::text = %s AND i.company_id = %s""", (payment_id, user["company_id"]))
         if not pay:
             raise HTTPException(404, f"no payment {payment_id}")
         settlement = _rows(conn, """

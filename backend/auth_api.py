@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel
-
+import os
 from backend.auth import check_password, current_user, hash_password, make_token
 from backend.db import get_conn
 
@@ -99,3 +99,8 @@ def me(user: dict = Depends(current_user)):
                 "SELECT name FROM companies WHERE id = %s", (user["company_id"],)
             ).fetchone()[0]
     return _user_out(user["id"], user["company_id"], name, user["email"], user["full_name"], user["role"])
+
+@router.get("/paypal-account")
+def paypal_account(user: dict = Depends(current_user)):
+    """The one PayPal account all payments run from (shown read-only in the console)."""
+    return {"email": os.environ.get("PAYPAL_ACCOUNT_EMAIL", "")}

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, Header, HTTPException
 import bcrypt
 import jwt
-from fastapi import Header, HTTPException
 
 from backend.db import get_conn
 
@@ -63,3 +62,4 @@ def current_member(user: dict = Depends(current_user)) -> dict:
     if not user["company_id"]:
         raise HTTPException(403, "Create your company first")
     return user
+

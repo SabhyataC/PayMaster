@@ -15,7 +15,7 @@ class CorrectionError(Exception):
         self.code, self.message = code, message
 
 
-def correct_extraction(extraction_id, reviewer, note, corrections):
+def correct_extraction(extraction_id, reviewer, note, corrections, company_id):
     reviewer, note = (reviewer or "").strip(), (note or "").strip()
     if not reviewer:
         raise CorrectionError("reviewer_required", "Say who is correcting")
@@ -30,7 +30,7 @@ def correct_extraction(extraction_id, reviewer, note, corrections):
     with get_conn() as conn:
         row = conn.execute(
             "SELECT status, extracted, original_extracted, field_confidence "
-            "FROM extractions WHERE id = %s", (extraction_id,)).fetchone()
+            "FROM extractions WHERE id = %s AND company_id = %s", (extraction_id, company_id)).fetchone()
         if row is None:
             raise CorrectionError("not_found", "No such extraction")
         status, fields, original, field_conf = row
