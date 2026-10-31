@@ -275,11 +275,11 @@ def route_row(extraction_id):
     """
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT status, extracted, field_confidence, confidence, invoice_id "
+            "SELECT status, extracted, field_confidence, confidence, invoice_id, company_id "
             "FROM extractions WHERE id = %s",
             (extraction_id,),
         ).fetchone()
-        status, fields, field_conf, conf, linked_invoice = row
+        status, fields, field_conf, conf, linked_invoice, company_id = row
         if fields is None:
             return {"status": status, "reason": "nothing to route", "invoice_id": None}
 
@@ -292,8 +292,8 @@ def route_row(extraction_id):
             return _needs_review(conn, extraction_id, why)
 
         vendors = conn.execute(
-            "SELECT id FROM vendors WHERE lower(trim(name)) = lower(trim(%s))",
-            (fields["vendor_name"],),
+            "SELECT id FROM vendors WHERE lower(trim(name)) = lower(trim(%s)) AND company_id = %s",
+            (fields["vendor_name"], company_id),
         ).fetchall()
         if len(vendors) != 1:
             return _needs_review(conn, extraction_id, f"vendor '{fields['vendor_name']}' is not in the vendor list")
@@ -304,7 +304,10 @@ def route_row(extraction_id):
             po_number = normalize_po(fields["po_number"])
             if not po_number:
                 return _needs_review(conn, extraction_id, f"PO number '{fields['po_number']}' is unreadable")
-            found = conn.execute("SELECT id FROM purchase_orders WHERE po_number = %s", (po_number,)).fetchone()
+            found = conn.execute(
+                "SELECT id FROM purchase_orders WHERE po_number = %s AND company_id = %s",
+                (po_number, company_id),
+            ).fetchone()            
             if not found:
                 return _needs_review(conn, extraction_id, f"{po_number} is not in the system")
             po_id = found[0]
@@ -321,16 +324,10 @@ def route_row(extraction_id):
         else:
             invoice_id = conn.execute(
                 """INSERT INTO invoices
-                    (vendor_id, po_id, invoice_number, amount, currency, destination_email, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'received') RETURNING id""",
-                (
-                    vendor_id,
-                    po_id,
-                    fields["invoice_number"],
-                    fields["total"],
-                    fields["currency"],
-                    (fields.get("bank_details") or {}).get("payee_email"),
-                ),
+                    (vendor_id, po_id, invoice_number, amount, currency, destination_email, status, company_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'received', %s) RETURNING id""",
+                (vendor_id, po_id, fields["invoice_number"], fields["total"], fields["currency"],
+                 (fields.get("bank_details") or {}).get("payee_email"), company_id),
             ).fetchone()[0]
             created = True
         conn.execute(

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: Sign in</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: #f7f6f2;
+            color: #1c1b18;
+            font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 380px;
+            background: #fff;
+            border: 1px solid #e4e2da;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 16px;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            margin: 0 0 4px;
+        }
+
+        .sub {
+            color: #6b6a63;
+            margin: 0 0 16px;
+            font-size: .9rem;
+        }
+
+        label {
+            display: block;
+            font-size: .85rem;
+            margin: 12px 0 4px;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 10px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        button.main {
+            width: 100%;
+            margin-top: 18px;
+            padding: 10px;
+            border: 0;
+            border-radius: 8px;
+            background: #0b6b4f;
+            color: #fff;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.main:disabled {
+            opacity: .6;
+            cursor: default;
+        }
+
+        .switch {
+            margin-top: 14px;
+            text-align: center;
+            font-size: .9rem;
+            color: #6b6a63;
+        }
+
+        .switch a {
+            color: #0b6b4f;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .err {
+            color: #b4531a;
+            font-size: .9rem;
+            margin-top: 12px;
+            min-height: 1.2em;
+        }
+
+        .demo {
+            margin-top: 12px;
+            font-size: .8rem;
+            color: #6b6a63;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1>PayMaster</h1>
+        <p class="sub" id="sub">Log in to your company</p>
+
+        <div id="signupOnly" style="display:none">
+            <label for="name">Your name</label>
+            <input id="name" autocomplete="name">
+        </div>
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="email">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="8 to 72 characters">
+
+        <button class="main" id="go">Log in</button>
+        <div class="err" id="err"></div>
+        <div class="switch" id="switch">New here? <a id="toggle">Create a company</a></div>
+        <div class="demo">Demo: demo@paymaster.example.com / demo-password-123</div>
+    </div>
+
+    <script>
+        const API = "http://localhost:8000";   // use the same value as API in index.html
+        const $ = id => document.getElementById(id);
+        let mode = "login";
+
+        // already logged in? go straight to the console
+        if (localStorage.getItem("pm_jwt")) location.replace("index.html");
+
+        function setMode(m) {
+            mode = m;
+            $("signupOnly").style.display = m === "signup" ? "block" : "none";
+            $("go").textContent = m === "signup" ? "Sign up" : "Log in";
+            $("sub").textContent = m === "signup" ? "Create your account" : "Log in to PayMaster";
+            $("switch").innerHTML = m === "signup"
+                ? 'Already have an account? <a id="toggle">Log in</a>'
+                : 'New here? <a id="toggle">Sign up</a>';
+            $("toggle").onclick = () => setMode(m === "signup" ? "login" : "signup");
+            $("err").textContent = "";
+        }
+
+        async function submit() {
+            $("err").textContent = "";
+            $("go").disabled = true;
+            const body = mode === "signup"
+                ? { full_name: $("name").value, email: $("email").value, password: $("password").value }
+                : { email: $("email").value, password: $("password").value };
+            try {
+                const r = await fetch(`${API}/auth/${mode}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok) {
+                    // FastAPI sends {detail: "text"} or, for validation errors, a list
+                    $("err").textContent = typeof data.detail === "string"
+                        ? data.detail : "Please check the fields and try again";
+                    return;
+                }
+                localStorage.setItem("pm_jwt", data.token);
+                localStorage.setItem("pm_user", JSON.stringify(data.user));
+                location.replace("index.html");
+            } catch (e) {
+                $("err").textContent = "Cannot reach the server. Is the API running?";
+            } finally {
+                $("go").disabled = false;
+            }
+        }
+
+        function goNext(user) {
+            location.replace(user && user.company_id ? "index.html" : "company.html");
+        }
+
+        // top of script, replaces the old "already logged in" line:
+        if (localStorage.getItem("pm_jwt")) {
+            goNext(JSON.parse(localStorage.getItem("pm_user") || "null"));
+        }
+
+        // inside submit(), replaces location.replace("index.html"):
+        goNext(data.user);
+
+        $("go").onclick = submit;
+        document.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+        setMode("login");
+    </script>
+</body>
+
+</html>

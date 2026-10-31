@@ -1,7 +1,7 @@
 """Passwords and login tokens. Every protected route uses current_user."""
 import os
 from datetime import datetime, timedelta, timezone
-
+from fastapi import Depends, Header, HTTPException
 import bcrypt
 import jwt
 from fastapi import Header, HTTPException
@@ -52,8 +52,14 @@ def current_user(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(401, "User no longer exists")
     return {
         "id": str(row[0]),
-        "company_id": str(row[1]),
+        "company_id": str(row[1]) if row[1] else None,
         "email": row[2],
         "full_name": row[3],
         "role": row[4],
     }
+
+def current_member(user: dict = Depends(current_user)) -> dict:
+    """Like current_user, but the user must already have created their company."""
+    if not user["company_id"]:
+        raise HTTPException(403, "Create your company first")
+    return user

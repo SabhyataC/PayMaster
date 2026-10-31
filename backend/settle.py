@@ -161,6 +161,9 @@ def sync_payment(conn, batch_id: str) -> dict:
     fee = Decimal("0")
     if new_status == "success":
         fee = Decimal(str(item.get("payout_item_fee", {}).get("value", "0")))
+        company_id = conn.execute(
+            "SELECT company_id FROM payments WHERE id = %s", (payment_id,)
+        ).fetchone()[0]
         already = conn.execute(
             "SELECT 1 FROM ledger_entries WHERE payment_id = %s AND entry_type = 'payment'",
             (payment_id,),
@@ -172,10 +175,10 @@ def sync_payment(conn, batch_id: str) -> dict:
                 conn.execute(
                     """
                     INSERT INTO ledger_entries
-                        (payment_id, entry_type, account, direction, amount, currency, description)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (payment_id, entry_type, account, direction, amount, currency, description, company_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (payment_id, entry_type, account, direction, value, row_currency, desc),
+                    (payment_id, entry_type, account, direction, value, row_currency, desc, company_id),
                 )
         conn.execute(
             """
