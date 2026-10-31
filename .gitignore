@@ -25,3 +25,5 @@ eval_runs/
 __pycache__/
 
 sync_now.py
+
+fix_db.py
