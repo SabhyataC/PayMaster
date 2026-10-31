@@ -2,11 +2,12 @@
 reconcile. Read-only. Used by scripts/show_audit.py and later by GET /audit/{invoice_id}."""
 
 
-def find_invoice_id(conn, ref):
-    """ref = invoice number (INV-2001) or invoice UUID."""
+def find_invoice_id(conn, ref, company_id=None):
+    """ref = invoice number (INV-2001) or invoice UUID. Pass company_id to search only that company."""
     row = conn.execute(
-        "SELECT id FROM invoices WHERE id::text = %s OR invoice_number = %s "
-        "ORDER BY received_at DESC LIMIT 1", (ref, ref)).fetchone()
+        "SELECT id FROM invoices WHERE (id::text = %s OR invoice_number = %s) "
+        "AND (%s::uuid IS NULL OR company_id = %s::uuid) "
+        "ORDER BY received_at DESC LIMIT 1", (ref, ref, company_id, company_id)).fetchone()
     return row[0] if row else None
 
 

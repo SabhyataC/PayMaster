@@ -22,13 +22,13 @@ SYSTEM = (
 )
 
 
-def _build(conn):
+def _build(conn, company_id):
     tips = []
 
     held = _rows(conn, """
         SELECT i.invoice_number, v.name AS vendor, i.amount, i.currency
         FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-        WHERE i.status = 'held' ORDER BY i.received_at""")
+        WHERE i.company_id = %s AND i.status = 'held' ORDER BY i.received_at""", (company_id,))
     if held:
         tips.append({"id": "held", "kind": "held", "priority": "high",
                      "evidence": [r["invoice_number"] for r in held],
@@ -40,9 +40,10 @@ def _build(conn):
         FROM audit_log a
         JOIN invoices i ON i.id = a.entity_id
         JOIN vendors v ON v.id = i.vendor_id
-        WHERE a.stage = 'fraud' AND a.reason LIKE 'Fraud risk %%'
+        WHERE i.company_id = %s
+          AND a.stage = 'fraud' AND a.reason LIKE 'Fraud risk %%'
           AND a.decision IN ('medium', 'high')
-        GROUP BY v.name HAVING COUNT(DISTINCT i.id) >= 2""")
+        GROUP BY v.name HAVING COUNT(DISTINCT i.id) >= 2""", (company_id,))
     for n, r in enumerate(flagged):
         tips.append({"id": f"flagged_{n}", "kind": "flagged", "priority": "high",
                      "evidence": r["invoices"], "facts": r})
@@ -50,9 +51,9 @@ def _build(conn):
     waiting = _rows(conn, """
         SELECT i.invoice_number, v.name AS vendor, i.amount, i.currency
         FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-        WHERE i.status = 'approved'
+        WHERE i.company_id = %s AND i.status = 'approved'
           AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id)
-        ORDER BY i.received_at""")
+        ORDER BY i.received_at""", (company_id,))
     if waiting:
         tips.append({"id": "waiting", "kind": "waiting", "priority": "medium",
                      "evidence": [r["invoice_number"] for r in waiting],
@@ -65,8 +66,8 @@ def _build(conn):
         FROM settlements s
         JOIN payments p ON p.id = s.payment_id
         JOIN invoices i ON i.id = p.invoice_id
-        WHERE p.currency IN ('GBP', 'EUR') AND s.fee_amount IS NOT NULL
-        GROUP BY p.currency, s.fee_currency""")
+        WHERE i.company_id = %s AND p.currency IN ('GBP', 'EUR') AND s.fee_amount IS NOT NULL
+        GROUP BY p.currency, s.fee_currency""", (company_id,))
     for r in fx:
         tips.append({"id": f"fx_{r['currency']}", "kind": "fx", "priority": "low",
                      "evidence": r["invoices"], "facts": r})
@@ -112,9 +113,9 @@ def _word(tips):
             t["text"], t["source"] = _template(t), "template"
 
 
-def advise():
+def advise(company_id):
     with _ro() as conn:
-        tips = _build(conn)
+        tips = _build(conn, company_id)
     _word(tips)
     return {"tips": [{k: t[k] for k in ("id", "priority", "text", "evidence", "source")}
                      for t in tips]}

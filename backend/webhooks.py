@@ -7,6 +7,8 @@ from backend.exceptions_api import router as exceptions_router, run_router
 from backend.db import get_conn
 from backend.settle import sync_payment
 from backend.corrections_api import router as corrections_router
+from fastapi import Depends
+from backend.auth import current_member
 
 from backend.paypal_client import BASE, get_token  # also loads .env
 
@@ -102,15 +104,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5500", "http://127.0.0.1:5500"],
     allow_methods=["GET", "POST"],
-    allow_headers=["X-Review-Token", "Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type"],
 )
-app.include_router(router)
-app.include_router(review_router)
-app.include_router(exceptions_router)
-app.include_router(run_router)
-app.include_router(corrections_router)
-app.include_router(console_router)
-app.include_router(audit_router) 
-app.include_router(chat_router)
-app.include_router(advise_router)
-app.include_router(auth_router)
+guard = [Depends(current_member)]
+app.include_router(router)   # PayPal webhooks: stay open
+app.include_router(auth_router)   # signup/login: stay open
+app.include_router(review_router, dependencies=guard)
+app.include_router(exceptions_router, dependencies=guard)
+app.include_router(run_router, dependencies=guard)
+app.include_router(corrections_router, dependencies=guard)
+app.include_router(console_router, dependencies=guard)
+app.include_router(audit_router, dependencies=guard)
+app.include_router(chat_router, dependencies=guard)
+app.include_router(advise_router, dependencies=guard)

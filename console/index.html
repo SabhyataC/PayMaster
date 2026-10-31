@@ -54,8 +54,9 @@
 </head>
 
 <body>
-    <h2>PayMaster Console</h2>
-    <div style="margin-bottom:12px"><input id="token" type="password" placeholder="Paste review token here" size="40">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>PayMaster Console</h2>
+        <div><span id="who" style="margin-right:10px;color:#6b6a63"></span><button id="logout">Log out</button></div>
     </div>
     <div id="cards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"></div>
     <h3>Invoices</h3>
@@ -96,8 +97,16 @@
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
+        const pmUser = JSON.parse(localStorage.getItem("pm_user") || "null");
+        if (!localStorage.getItem("pm_jwt")) location.replace("login.html");
+        else if (pmUser && !pmUser.company_id) location.replace("company.html");
+        document.getElementById("who").textContent = pmUser ? `${pmUser.full_name} · ${pmUser.company_name || ""}` : "";
+        document.getElementById("logout").onclick = () => {
+            localStorage.removeItem("pm_jwt");
+            localStorage.removeItem("pm_user");
+            location.replace("login.html");
+        };
         const $ = (id) => document.getElementById(id);
-        $("token").value = sessionStorage.getItem("pm_token") || "";
 
         function actionsCell(p) {
             const box = document.createElement("span");
@@ -111,11 +120,9 @@
             mk("Explain", () => act(p.data.id, "explain"));
             if (p.data.status === "open") {
                 mk("Resolve", () => {
-                    const by = prompt("Your name:");
-                    if (!by) return;
                     const note = prompt("Note (what did you check in PayPal?):");
                     if (!note) return;
-                    act(p.data.id, "resolve", { resolved_by: by, note: note });
+                    act(p.data.id, "resolve", { note: note });
                 });
             }
             return box;
@@ -126,7 +133,7 @@
             try {
                 const r = await fetch(`${API}/exceptions/${id}/${what}`, {
                     method: "POST",
-                    headers: { "X-Review-Token": $("token").value.trim(), "Content-Type": "application/json" },
+                    headers: hdr(),
                     body: JSON.stringify(body || {}),
                 });
                 if (!r.ok) {
@@ -158,12 +165,10 @@
         });
 
         async function loadExceptions() {
-            const token = $("token").value.trim();
-            sessionStorage.setItem("pm_token", token);
             $("msg").textContent = "Loading...";
             try {
                 const r = await fetch(`${API}/exceptions?status=${$("status").value}`, {
-                    headers: { "X-Review-Token": token },
+                    headers: hdr(),
                 });
                 if (!r.ok) { $("msg").textContent = `Error ${r.status}`; return; }
                 const data = await r.json();
@@ -175,7 +180,7 @@
         }
         $("load").addEventListener("click", loadExceptions);
 
-        const hdr = () => ({ "X-Review-Token": $("token").value.trim(), "Content-Type": "application/json" });
+        const hdr = () => ({ "Authorization": "Bearer " + localStorage.getItem("pm_jwt"), "Content-Type": "application/json" });
         const errText = (e) => (e.detail && typeof e.detail === "object") ? e.detail.message : (e.detail || "");
 
 
@@ -191,7 +196,6 @@
             const code = d && d.code;
             const MAP = {
                 note_too_short: "Your note is too short. Write at least 10 characters explaining why.",
-                reviewer_required: "Type your name in the Reviewer box.",
                 not_allowed: "A person cannot do that to this invoice in its current status. Reload and check its status.",
                 confirmation_required: "This invoice changed its bank details. Confirm with the vendor first, then tick the box.",
                 hard_reject: "Cannot approve: " + ((d && d.message) || "a hard check says this must not be paid."),
@@ -233,7 +237,6 @@
                     f.style.cssText = "margin-top:14px;padding:10px;background:#f6f6f6;border-radius:6px";
                     f.innerHTML = `
                         <h4>Your decision</h4>
-                        <div><input id="d_reviewer" placeholder="Reviewer name" size="24"></div>
                         <div style="margin:6px 0"><textarea id="d_note" rows="2" cols="60" placeholder="Why? (at least 10 characters)"></textarea></div>
                         <label><input type="checkbox" id="d_confirmed"> I confirmed the bank details with the vendor (needed when the bank details changed)</label>
                         <div style="margin-top:8px">
@@ -247,7 +250,6 @@
                             method: "POST", headers: hdr(),
                             body: JSON.stringify({
                                 decision,
-                                reviewer: $("d_reviewer").value.trim(),
                                 note: $("d_note").value.trim(),
                                 confirmed_with_vendor: $("d_confirmed").checked,
                             }),
@@ -311,23 +313,21 @@
         }
 
         async function decide(id, decision, confirmedWithVendor) {
-            const reviewer = prompt("Your name:");
-            if (!reviewer) return;
             const note = prompt("Why? (at least 10 characters)");
             if (!note) return;
-            await sendDecision(id, decision, reviewer, note, false);
+            await sendDecision(id, decision, note, false);
         }
 
-        async function sendDecision(id, decision, reviewer, note, confirmed) {
+        async function sendDecision(id, decision, note, confirmed) {
             const r = await fetch(`${API}/review/${id}/decision`, {
                 method: "POST", headers: hdr(),
-                body: JSON.stringify({ decision, reviewer, note, confirmed_with_vendor: confirmed }),
+                body: JSON.stringify({ decision, note, confirmed_with_vendor: confirmed }),
             });
             if (r.ok) { $("qmsg").textContent = `${decision} done`; return loadQueue(); }
             const e = await r.json().catch(() => ({}));
             if (e.detail && e.detail.code === "confirmation_required" && !confirmed) {
                 if (confirm(e.detail.message + "\n\nHave you confirmed with the vendor?")) {
-                    return sendDecision(id, decision, reviewer, note, true);
+                    return sendDecision(id, decision, note, true);
                 }
             }
             $("qmsg").textContent = `Error ${r.status}: ${errText(e)}`;
@@ -347,11 +347,9 @@
         }
 
         async function payInvoice(id, row) {
-            const reviewer = prompt("Your name (you are releasing this payment):");
-            if (!reviewer) return;
             if (!confirm(`Pay ${row.amount} ${row.currency} to ${row.vendor}?`)) return;
             const r = await fetch(`${API}/review/${id}/pay`, {
-                method: "POST", headers: hdr(), body: JSON.stringify({ reviewer }),
+                method: "POST", headers: hdr(),
             });
             const e = await r.json().catch(() => ({}));
             const m = r.ok ? payMessage(e) : `Error ${r.status}: ${errText(e)}`;
@@ -404,8 +402,7 @@
             rowData: [],
         });
 
-        async function loadInvoices() {
-            sessionStorage.setItem("pm_token", $("token").value.trim());
+        async function loadInvoices() {            
             $("imsg").textContent = "Loading...";
             try {
                 const r = await fetch(`${API}/invoices`, { headers: hdr() });
@@ -546,7 +543,6 @@
             const resolve = x.status === "open"
                 ? `<h4>Resolve</h4>
            <p>Only after you have checked the payout in PayPal.<br>
-           <input id="x_by" placeholder="Your name"><br>
            <textarea id="x_note" rows="2" cols="60" placeholder="What did you check in PayPal? (at least 10 characters)"></textarea><br>
            <button id="x_resolve">Resolve exception</button> <span id="x_msg"></span></p>`
                 : `<p><b>Resolved</b> by ${esc(x.resolved_by)} at ${esc(String(x.resolved_at).slice(0, 19).replace("T", " "))}: ${esc(x.note)}</p>`;
@@ -573,13 +569,12 @@
             } catch (e) { box.textContent = "Cannot reach the API (is uvicorn running?)"; }
         }
         async function submitResolve(id) {
-            const by = $("x_by").value.trim(), note = $("x_note").value.trim();
-            if (!by) { $("x_msg").textContent = "Type your name."; return; }
+            const note = $("x_note").value.trim();
             if (note.length < 10) { $("x_msg").textContent = "Write at least 10 characters about what you checked in PayPal."; return; }
             $("x_msg").textContent = "Saving...";
             try {
                 const r = await fetch(`${API}/exceptions/${id}/resolve`, {
-                    method: "POST", headers: hdr(), body: JSON.stringify({ resolved_by: by, note }),
+                    method: "POST", headers: hdr(), body: JSON.stringify({ note }),
                 });
                 if (!r.ok) { const e = await r.json().catch(() => ({})); $("x_msg").textContent = `Error ${r.status}: ${errText(e)}`; return; }
                 await loadExceptions();

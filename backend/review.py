@@ -39,7 +39,7 @@ def _latest_audit(conn, invoice_id, stage):
     return None if row is None else {"decision": row[0], "reason": row[1], "inputs": row[2], "at": row[3]}
 
 
-def list_queue(conn):
+def list_queue(conn, company_id):
     """Everything a person has to look at:
        verify_hold  = status 'held' (Verify wants a person)
        policy_hold  = status 'approved' but pay policy wants a person (new payee, over the limit)
@@ -47,9 +47,10 @@ def list_queue(conn):
     rows = conn.execute(
         """SELECT i.id, i.invoice_number, v.name, i.amount, i.currency, i.status, i.received_at
            FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-           WHERE i.status IN ('held', 'approved')
+            WHERE i.company_id = %s
+             AND i.status IN ('held', 'approved')
              AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id)
-           ORDER BY i.received_at""").fetchall()
+           ORDER BY i.received_at""", (company_id,)).fetchall()
     queue = []
     for inv_id, number, vendor, amount, currency, status, received in rows:
         if status == "held":

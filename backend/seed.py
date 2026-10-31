@@ -89,8 +89,8 @@ def seed_pos_and_deliveries(conn, company_id, vendor_ids):
             (po_number, vendor_ids[name], amount, company_id),
         ).fetchone()[0]
         conn.execute(
-            "INSERT INTO deliveries (po_id, description, amount) VALUES (%s, %s, %s)",
-            (po_id, description, amount),
+            "INSERT INTO deliveries (po_id, description, amount, company_id) VALUES (%s, %s, %s, %s)",
+            (po_id, description, amount, company_id),
         )
         po_ids[name] = po_id
     return po_ids
@@ -146,8 +146,8 @@ def seed_foreign_currency(conn, company_id, vendor_ids):
             (po_number, vendor_ids[vendor], amount, currency, company_id),
         ).fetchone()[0]
         conn.execute(
-            "INSERT INTO deliveries (po_id, description, amount) VALUES (%s, %s, %s)",
-            (po_id, description, amount),
+            "INSERT INTO deliveries (po_id, description, amount, company_id) VALUES (%s, %s, %s, %s)",
+            (po_id, description, amount, company_id),
         )
         conn.execute(
             "INSERT INTO invoices (vendor_id, po_id, invoice_number, amount, currency, "

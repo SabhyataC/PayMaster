@@ -4,8 +4,9 @@ from pydantic import BaseModel
 
 from backend.audit import log_decision
 from backend.db import get_conn
-from backend.review_api import require_token
 from backend.explain import audit_target, explain_exception
+from fastapi import APIRouter, Depends, HTTPException
+from backend.auth import current_member
 
 router = APIRouter(prefix="/exceptions", tags=["exceptions"])
 
@@ -20,29 +21,27 @@ def _row(r):
 
 
 class Resolve(BaseModel):
-    resolved_by: str
     note: str
 
 
 @router.get("")
-def list_exceptions(status: str = "open", x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
+def list_exceptions(status: str = "open", user: dict = Depends(current_member)):
     if status not in ("open", "resolved"):
         raise HTTPException(422, "status must be open or resolved")
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT {COLS} FROM exceptions WHERE status = %s ORDER BY created_at DESC",
-            (status,),
+            f"SELECT {COLS} FROM exceptions WHERE status = %s AND company_id = %s ORDER BY created_at DESC",
+            (status, user["company_id"]),
         ).fetchall()
     return {"items": [_row(r) for r in rows]}
 
 
 @router.get("/{exception_id}")
-def get_exception(exception_id: int, x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
+def get_exception(exception_id: int, user: dict = Depends(current_member)):
     with get_conn() as conn:
         r = conn.execute(
-            f"SELECT {COLS} FROM exceptions WHERE id = %s", (exception_id,)
+            f"SELECT {COLS} FROM exceptions WHERE id = %s AND company_id = %s",
+            (exception_id, user["company_id"]),
         ).fetchone()
     if not r:
         raise HTTPException(404, "exception not found")
@@ -50,15 +49,13 @@ def get_exception(exception_id: int, x_review_token: str | None = Header(default
 
 
 @router.post("/{exception_id}/resolve")
-def resolve_exception(exception_id: int, body: Resolve,
-                      x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
-    if not body.resolved_by.strip() or not body.note.strip():
-        raise HTTPException(422, "resolved_by and note are both required")
+def resolve_exception(exception_id: int, body: Resolve, user: dict = Depends(current_member)):
+    if not body.note.strip():
+        raise HTTPException(422, "note is required")
     with get_conn() as conn:
         r = conn.execute(
-            "SELECT payment_id, type, status FROM exceptions WHERE id = %s",
-            (exception_id,),
+            "SELECT payment_id, type, status FROM exceptions WHERE id = %s AND company_id = %s",
+            (exception_id, user["company_id"]),
         ).fetchone()
         if not r:
             raise HTTPException(404, "exception not found")
@@ -68,22 +65,26 @@ def resolve_exception(exception_id: int, body: Resolve,
             """UPDATE exceptions
                SET status = 'resolved', resolved_by = %s, resolved_at = now(), note = %s
                WHERE id = %s""",
-            (body.resolved_by.strip(), body.note.strip(), exception_id),
+            (user["full_name"], body.note.strip(), exception_id),
         )
         etype, eid = audit_target(r[0], exception_id)
         log_decision(
             conn, stage="reconcile", entity_type=etype, entity_id=eid,
             decision="exception_resolved",
-            reason=f"{r[1]} resolved by {body.resolved_by.strip()}: {body.note.strip()}",
+            reason=f"{r[1]} resolved by {user["full_name"]}: {body.note.strip()}",
             inputs={"exception_id": exception_id}, actor="human",
         )
         conn.commit()
     return {"id": exception_id, "status": "resolved"}
 
 @router.post("/{exception_id}/explain")
-def explain(exception_id: int, x_review_token: str | None = Header(default=None)):
-    require_token(x_review_token)
+def explain(exception_id: int, user: dict = Depends(current_member)):
     with get_conn() as conn:
+        mine = conn.execute(
+            "SELECT 1 FROM exceptions WHERE id = %s AND company_id = %s",
+            (exception_id, user["company_id"])).fetchone()
+        if not mine:
+            raise HTTPException(404, "exception not found")
         result = explain_exception(conn, exception_id)
         if result is None:
             raise HTTPException(404, "exception not found")
@@ -96,12 +97,10 @@ from backend.reconcile import run_reconcile
 
 run_router = APIRouter(prefix="/reconcile", tags=["reconcile"])
 
-
 @run_router.post("/run")
-def run_now(x_review_token: str | None = Header(default=None)):
+def run_now(user: dict = Depends(current_member)):
     """Check every payment against PayPal and log any new exceptions. Moves no money itself
     (the only automatic action is cancelling an unclaimed payout, as built on Nov 2)."""
-    require_token(x_review_token)
     with get_conn() as conn:
         counts = run_reconcile(conn)
         log_decision(

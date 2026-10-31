@@ -137,7 +137,7 @@
                     return;
                 }
                 localStorage.setItem("pm_user", JSON.stringify(data.user));
-                location.replace("index.html");
+                location.replace("paypal.html");
             } catch (e) {
                 $("err").textContent = "Cannot reach the server. Is the API running?";
             } finally {
