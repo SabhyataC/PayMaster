@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: Vendors, POs, Deliveries</title>
+    <style>
+        body {
+            margin: 0;
+            background: #f7f6f2;
+            color: #1c1b18;
+            font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        section {
+            background: #fff;
+            border: 1px solid #e4e2da;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin: 14px 0;
+        }
+
+        h2,
+        h3 {
+            margin: 0 0 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .9rem;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 6px 8px;
+            border-top: 1px solid #e4e2da;
+        }
+
+        form {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        input,
+        select,
+        button {
+            font: inherit;
+            padding: 7px 9px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+        }
+
+        button {
+            background: #0b6b4f;
+            color: #fff;
+            border: 0;
+            cursor: pointer;
+        }
+
+        button.ghost {
+            background: none;
+            color: #0b6b4f;
+            border: 1px solid #0b6b4f;
+            padding: 2px 8px;
+        }
+
+        .msg {
+            color: #b4531a;
+            min-height: 1.2em;
+            font-size: .9rem;
+        }
+
+        .ok {
+            color: #0b6b4f;
+        }
+
+        a {
+            color: #0b6b4f;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <header>
+            <h2>Vendors, POs, Deliveries</h2>
+            <div><a href="index.html">Back to console</a> <button class="ghost" id="logout">Log out</button></div>
+        </header>
+
+        <section>
+            <h3>Vendors</h3>
+            <form id="vform">
+                <input id="vname" placeholder="Name" required>
+                <input id="vcountry" placeholder="Country" size="10" required>
+                <input id="vemail" type="email" placeholder="Payout (PayPal) email" required>
+                <button>Add vendor</button>
+            </form>
+            <div class="msg" id="vmsg"></div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Country</th>
+                        <th>Payout email</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="vbody"></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h3>Purchase orders</h3>
+            <form id="pform">
+                <select id="pvendor" required></select>
+                <input id="pnum" placeholder="PO number" size="10" required>
+                <input id="pamt" type="number" step="0.01" min="0.01" placeholder="Amount" required>
+                <input id="pcur" value="USD" size="4" maxlength="3">
+                <button>Create PO</button>
+            </form>
+            <div class="msg" id="pmsg"></div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>PO</th>
+                        <th>Vendor</th>
+                        <th>Amount</th>
+                        <th>Delivered</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="pbody">
+            </table>
+        </section>
+
+        <section>
+            <h3>Deliveries</h3>
+            <form id="dform">
+                <select id="dpo" required></select>
+                <input id="ddesc" placeholder="What arrived" size="24" required>
+                <input id="damt" type="number" step="0.01" min="0.01" placeholder="Value" required>
+                <button>Record delivery</button>
+            </form>
+            <div class="msg" id="dmsg"></div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>PO</th>
+                        <th>Description</th>
+                        <th>Value</th>
+                        <th>Received</th>
+                    </tr>
+                </thead>
+                <tbody id="dbody"></tbody>
+            </table>
+        </section>
+    </main>
+
+    <script>
+        const API = "http://localhost:8000";
+        const $ = id => document.getElementById(id);
+        const jwt = localStorage.getItem("pm_jwt");
+        const user = JSON.parse(localStorage.getItem("pm_user") || "null");
+        function logout() { localStorage.removeItem("pm_jwt"); localStorage.removeItem("pm_user"); location.replace("login.html"); }
+        if (!jwt) location.replace("login.html");
+        else if (user && !user.company_id) location.replace("company.html");
+        $("logout").onclick = logout;
+
+        const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const money = (n, cur) => Number(n).toFixed(2) + (cur ? " " + cur : "");
+
+        async function call(path, method, body) {
+            const r = await fetch(API + path, {
+                method: method || "GET",
+                headers: { "Authorization": "Bearer " + jwt, "Content-Type": "application/json" },
+                body: body ? JSON.stringify(body) : undefined,
+            });
+            if (r.status === 401) { logout(); throw new Error("Session expired"); }
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                const d = data.detail;
+                throw new Error(typeof d === "string" ? d : "Please check the values you entered");
+            }
+            return data;
+        }
+        function fail(id, e) { $(id).className = "msg"; $(id).textContent = e.message === "Failed to fetch" ? "Cannot reach the API" : e.message; }
+        function done(id, text) { $(id).className = "msg ok"; $(id).textContent = text; }
+
+        let vendors = [];
+        async function loadVendors() {
+            vendors = (await call("/vendors")).items;
+            $("vbody").innerHTML = vendors.map(v => `<tr><td>${esc(v.name)}</td><td>${esc(v.country)}</td><td>${esc(v.payout_email)}</td>
+            <td><button class="ghost" data-id="${esc(v.id)}">Change email</button></td></tr>`).join("");
+            $("pvendor").innerHTML = vendors.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join("");
+        }
+        async function loadPOs() {
+            const pos = (await call("/pos")).items;
+            $("pbody").innerHTML = pos.map(p => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${money(p.amount, p.currency)}</td>
+            <td>${money(p.delivered)}</td><td>${esc(p.status)}</td>
+            <td>${p.delivered < p.amount ? `<button class="ghost" data-po="${esc(p.id)}">Mark fully delivered</button>` : ""}</td></tr>`).join("");
+            $("dpo").innerHTML = pos.map(p => `<option value="${esc(p.id)}">${esc(p.po_number)} (${esc(p.vendor)})</option>`).join("");
+        }
+        async function loadDeliveries() {
+            const ds = (await call("/deliveries")).items;
+            $("dbody").innerHTML = ds.map(d => `<tr><td>${esc(d.po_number)}</td><td>${esc(d.description)}</td><td>${money(d.amount)}</td>
+            <td>${esc(d.received_at.slice(0, 10))}</td></tr>`).join("");
+        }
+        async function refresh() {
+            try { await loadVendors(); await loadPOs(); await loadDeliveries(); }
+            catch (e) { fail("vmsg", e); }
+        }
+
+        $("vform").onsubmit = async e => {
+            e.preventDefault(); $("vmsg").textContent = "";
+            try {
+                await call("/vendors", "POST", { name: $("vname").value, country: $("vcountry").value, payout_email: $("vemail").value });
+                $("vform").reset(); done("vmsg", "Vendor added"); await refresh();
+            } catch (err) { fail("vmsg", err); }
+        };
+        $("vbody").onclick = async e => {
+            const id = e.target.dataset && e.target.dataset.id;
+            if (!id) return;
+            const email = prompt("New payout email:");
+            if (!email) return;
+            try { await call("/vendors/" + id, "POST", { payout_email: email.trim() }); done("vmsg", "Payout email changed"); await refresh(); }
+            catch (err) { fail("vmsg", err); }
+        };
+        $("pbody").onclick = async e => {
+            const id = e.target.dataset && e.target.dataset.po;
+            if (!id) return;
+            try { await call(`/pos/${id}/deliver-all`, "POST"); done("pmsg", "Marked fully delivered"); await refresh(); }
+            catch (err) { fail("pmsg", err); }
+        };
+        $("pform").onsubmit = async e => {
+            e.preventDefault(); $("pmsg").textContent = "";
+            try {
+                await call("/pos", "POST", { vendor_id: $("pvendor").value, po_number: $("pnum").value, amount: $("pamt").value, currency: $("pcur").value });
+                $("pnum").value = ""; $("pamt").value = ""; done("pmsg", "PO created"); await refresh();
+            } catch (err) { fail("pmsg", err); }
+        };
+        $("dform").onsubmit = async e => {
+            e.preventDefault(); $("dmsg").textContent = "";
+            try {
+                await call(`/pos/${$("dpo").value}/deliveries`, "POST", { description: $("ddesc").value, amount: $("damt").value });
+                $("ddesc").value = ""; $("damt").value = ""; done("dmsg", "Delivery recorded"); await refresh();
+            } catch (err) { fail("dmsg", err); }
+        };
+        refresh();
+    </script>
+</body>
+
+</html>

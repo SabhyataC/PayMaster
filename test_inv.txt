@@ -1,0 +1,22 @@
+From: b@test.com
+To: ap@paymaster-demo.example.com
+Subject: Invoice TC-001
+Date: 31st October 2026
+
+Hello, please find our invoice below.
+
+Test Co
+Invoice no: TC-001
+Date: 31st October 2026
+Due date: 30 November 2026
+Ref: PO-9001
+
+Items:
+- Test goods: 1 x 500.00 = 500.00
+Total due: $500.00
+
+Account holder: Test Co
+PayPal / payment email: b@test.com
+
+Thanks,
+Test Co
