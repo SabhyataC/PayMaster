@@ -56,11 +56,20 @@
 <body>
     <div style="display:flex;justify-content:space-between;align-items:center">
         <h2>PayMaster Console</h2>
-        <div><span id="who" style="margin-right:10px;color:#6b6a63"></span><button id="logout">Log out</button></div>
+        <div>
+            <a href="vendors.html" style="margin-right:10px">Vendors &amp; POs</a>
+            <span id="who" style="margin-right:10px;color:#6b6a63"></span>
+            <button id="logout">Log out</button>
+        </div>
     </div>
     <div id="cards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <div id="attn" style="border:1px solid #e4e2da;border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
     <h3>Invoices</h3>
     <div><button id="loadi">Load invoices</button> <span id="imsg"></span></div>
+    <div style="margin:8px 0">
+        <input type="file" id="ufile" accept=".pdf,.png,.jpg,.jpeg,.txt,.eml">
+        <button id="upbtn">Upload invoice</button> <span id="umsg"></span>
+    </div>
     <div id="igrid" class="ag-theme-quartz" style="height:35vh"></div>
     <div id="bar">
         <h3>Exceptions</h3>
@@ -402,7 +411,26 @@
             rowData: [],
         });
 
-        async function loadInvoices() {            
+        async function loadAttention() {
+            const box = $("attn");
+            try {
+                const r = await fetch(`${API}/attention`, { headers: { "Authorization": "Bearer " + localStorage.getItem("pm_jwt") } });
+                if (!r.ok) { box.textContent = ""; return; }
+                const d = await r.json();
+                const e = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+                const sec = (title, rows, fmt) => rows.length
+                    ? `<div style="margin:6px 0"><b>${title} (${rows.length})</b><ul style="margin:4px 0 0 18px;padding:0">${rows.map(x => `<li>${fmt(x)} <span style="color:#6b6a63">· ${x.days}d</span></li>`).join("")}</ul></div>` : "";
+                const html =
+                    sec("Waiting for a delivery to be recorded", d.waiting_delivery, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}, ${e(x.po)} delivered ${x.delivered}`) +
+                    sec("Documents waiting for a vendor or PO", d.needs_fix, x => `${e(x.file)}: ${e(x.reason)}`) +
+                    sec("Approved, ready for a person to pay", d.ready_to_pay, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`) +
+                    sec("Delivered, no invoice yet", d.delivered_no_invoice, x => `${e(x.po)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`);
+                box.innerHTML = `<b style="color:${d.total ? "#b4531a" : "#0b6b4f"}">Needs attention: ${d.total}</b>` + (html || `<div style="color:#6b6a63">Nothing is waiting.</div>`);
+            } catch (err) { box.textContent = ""; }
+        }
+
+        async function loadInvoices() {
+            loadAttention();
             $("imsg").textContent = "Loading...";
             try {
                 const r = await fetch(`${API}/invoices`, { headers: hdr() });
@@ -417,6 +445,39 @@
         }
 
         $("loadi").addEventListener("click", loadInvoices);
+
+        $("upbtn").addEventListener("click", async () => {
+            const f = $("ufile").files[0];
+            if (!f) { $("umsg").textContent = "Choose a file first"; return; }
+            const fd = new FormData();
+            fd.append("file", f);
+            $("upbtn").disabled = true;
+            $("umsg").textContent = "Reading and checking the invoice (10-30 seconds)...";
+            try {
+                const r = await fetch(`${API}/invoices/upload`, {
+                    method: "POST",
+                    headers: { "Authorization": "Bearer " + localStorage.getItem("pm_jwt") },
+                    body: fd,
+                });
+                const d = await r.json().catch(() => ({}));
+                if (r.status === 401) { localStorage.removeItem("pm_jwt"); location.replace("login.html"); return; }
+                if (!r.ok) { $("umsg").textContent = typeof d.detail === "string" ? d.detail : "Upload failed"; return; }
+                if (d.intake === "accepted") {
+                    $("umsg").textContent = `Invoice ${d.invoice_status}: ${d.verdict}` + (d.verdict_reasons.length ? " (" + d.verdict_reasons.join(", ") + ")" : "")
+                        + (d.payment ? ` | payment: ${d.payment}` + (d.payment_reasons && d.payment_reasons.length ? " (" + d.payment_reasons.join(", ") + ")" : "") : "");
+                    loadInvoices();
+                } else {
+                    $("umsg").textContent = d.intake === "failed"
+                        ? "The AI service is busy right now. Please upload again in a minute."
+                        : `Needs a person to look: ${d.reason || d.intake}`;
+                }
+                $("ufile").value = "";
+            } catch (e) {
+                $("umsg").textContent = "Cannot reach the API (is uvicorn running?)";
+            } finally {
+                $("upbtn").disabled = false;
+            }
+        });
 
         // ---- Summary cards ----
         function card(title, body, warn) {

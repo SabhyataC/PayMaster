@@ -28,3 +28,4 @@ pillow
 reportlab
 bcrypt
 pyjwt
+python-multipart

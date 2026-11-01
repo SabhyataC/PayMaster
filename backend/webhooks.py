@@ -98,6 +98,10 @@ from backend.audit_api import router as audit_router
 from backend.chat_api import router as chat_router
 from backend.advise_api import router as advise_router  
 from backend.auth_api import router as auth_router
+from backend.vendors_api import router as vendors_router
+from backend.po_api import router as po_router
+from backend.upload_api import router as upload_router
+from backend.attention_api import router as attention_router
 
 app = FastAPI()
 app.add_middleware(
@@ -117,3 +121,7 @@ app.include_router(console_router, dependencies=guard)
 app.include_router(audit_router, dependencies=guard)
 app.include_router(chat_router, dependencies=guard)
 app.include_router(advise_router, dependencies=guard)
+app.include_router(vendors_router, dependencies=guard)
+app.include_router(po_router, dependencies=guard)
+app.include_router(upload_router, dependencies=guard)
+app.include_router(attention_router, dependencies=guard)
