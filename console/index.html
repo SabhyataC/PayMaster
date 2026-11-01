@@ -7,20 +7,198 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-quartz.css">
     <style>
+        :root {
+            --bg: #f4f5f2;
+            --line: #e4e2da;
+            --ink: #1c1b18;
+            --muted: #6b6a63;
+            --brand: #0b6b4f;
+            --brand-d: #08543e;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: system-ui, sans-serif;
-            margin: 16px;
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         }
 
-        #bar {
+        .app {
+            display: grid;
+            grid-template-columns: 230px 1fr;
+            min-height: 100vh;
+        }
+
+        .side {
+            background: #10231c;
+            color: #cfe3da;
+            padding: 18px 12px;
             display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-bottom: 8px;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
         }
 
-        #grid {
-            height: 70vh;
+        .brand {
+            font-weight: 700;
+            font-size: 19px;
+            color: #fff;
+            padding: 4px 10px 20px;
+        }
+
+        .brand span {
+            color: #4ad4a0;
+        }
+
+        .nav a {
+            display: block;
+            padding: 9px 12px;
+            border-radius: 8px;
+            color: #cfe3da;
+            text-decoration: none;
+            cursor: pointer;
+            margin-bottom: 3px;
+        }
+
+        .nav a:hover {
+            background: #1a3a2f;
+        }
+
+        .nav a.active {
+            background: var(--brand);
+            color: #fff;
+        }
+
+        .nav hr {
+            border: 0;
+            border-top: 1px solid #1f3d32;
+            margin: 10px 0;
+        }
+
+        .side .foot {
+            margin-top: auto;
+            padding: 12px 10px 0;
+            font-size: 12px;
+            border-top: 1px solid #1f3d32;
+        }
+
+        .side .foot button {
+            margin-top: 8px;
+            width: 100%;
+            background: none;
+            border: 1px solid #3a5a4d;
+            color: #cfe3da;
+        }
+
+        .main {
+            padding: 22px 28px;
+            min-width: 0;
+        }
+
+        .top h1 {
+            font-size: 22px;
+            margin: 0 0 16px;
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        .box {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .box h3 {
+            margin: 0 0 10px;
+            font-size: 15px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            color: var(--muted);
+        }
+
+        #cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        #attn {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+
+        button {
+            background: var(--brand);
+            color: #fff;
+            border: 0;
+            border-radius: 8px;
+            padding: 7px 14px;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: var(--brand-d);
+        }
+
+        button:disabled {
+            opacity: .5;
+            cursor: default;
+        }
+
+        .ag-theme-quartz {
+            --ag-font-size: 13px;
+            --ag-header-background-color: #f1efe8;
+            --ag-border-radius: 10px;
+            --ag-borders: solid 1px;
+            --ag-border-color: #e4e2da;
+        }
+
+        .ag-theme-quartz button {
+            padding: 1px 10px;
+            font-size: 12px;
+            background: none;
+            color: var(--brand);
+            border: 1px solid var(--brand);
+        }
+
+        .ag-theme-quartz button:hover {
+            background: var(--brand);
+            color: #fff;
+        }
+
+        input,
+        select,
+        textarea {
+            font: inherit;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            padding: 7px 9px;
+            background: #fff;
         }
 
         .tbl {
@@ -30,78 +208,132 @@
 
         .tbl th,
         .tbl td {
-            border: 1px solid #ddd;
-            padding: 4px 8px;
+            border-bottom: 1px solid var(--line);
+            padding: 6px 8px;
             text-align: left;
             font-size: 13px;
             vertical-align: top;
         }
 
-        .panel {
-            display: none;
-            margin: 12px 0;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
+        .tbl th {
+            background: #f1efe8;
         }
 
-        input,
-        textarea,
-        button {
-            font-family: inherit;
+        .panel {
+            display: none;
+            margin: 14px 0;
+            padding: 16px;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+        }
+
+        #detail {
+            display: none;
+            margin: 14px 0;
+            padding: 16px;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+        }
+
+        #q {
+            width: 100%;
+            max-width: 640px;
         }
     </style>
 </head>
 
 <body>
-    <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2>PayMaster Console</h2>
-        <div>
-            <a href="vendors.html" style="margin-right:10px">Vendors &amp; POs</a>
-            <span id="who" style="margin-right:10px;color:#6b6a63"></span>
-            <button id="logout">Log out</button>
-        </div>
-    </div>
-    <div id="cards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"></div>
-    <div id="attn" style="border:1px solid #e4e2da;border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
-    <h3>Invoices</h3>
-    <div><button id="loadi">Load invoices</button> <span id="imsg"></span></div>
-    <div style="margin:8px 0">
-        <input type="file" id="ufile" accept=".pdf,.png,.jpg,.jpeg,.txt,.eml">
-        <button id="upbtn">Upload invoice</button> <span id="umsg"></span>
-    </div>
-    <div id="igrid" class="ag-theme-quartz" style="height:35vh"></div>
-    <div id="bar">
-        <h3>Exceptions</h3>
-        <select id="status">
-            <option>open</option>
-            <option>resolved</option>
-        </select>
-        <button id="load">Load exceptions</button>
-        <span id="msg"></span>
-    </div>
-    <div id="grid" class="ag-theme-quartz"></div>
-    <div id="xdetail" class="panel"></div>
-    <h3>Review queue</h3>
-    <div id="bar2"><button id="loadq">Load review queue</button> <span id="qmsg"></span></div>
-    <div id="qgrid" class="ag-theme-quartz" style="height:40vh"></div>
-    <div id="detail" style="margin:12px 0;padding:12px;border:1px solid #ccc;border-radius:6px;display:none"></div>
-    <div id="audit" class="panel"></div>
+    <div class="app">
+        <aside class="side">
+            <div class="brand">Pay<span>Master</span></div>
+            <nav class="nav">
+                <a data-v="overview" data-t="Overview" class="active">Overview</a>
+                <a data-v="invoices" data-t="Invoices">Invoices</a>
+                <a data-v="review" data-t="Review queue">Review queue</a>
+                <a data-v="exceptions" data-t="Exceptions">Exceptions</a>
+                <a data-v="payments" data-t="Payments and ledger">Payments &amp; ledger</a>
+                <a data-v="assistant" data-t="Ask and Advise">Ask &amp; Advise</a>
+                <hr>
+                <a href="vendors.html">Vendors &amp; POs</a>
+            </nav>
+            <div class="foot">
+                <div id="who"></div>
+                <button id="logout">Log out</button>
+            </div>
+        </aside>
 
-    <h3>Payments and ledger</h3>
-    <div><button id="loadp">Load payments</button> <span id="pmsg"></span></div>
-    <div id="pgrid" class="ag-theme-quartz" style="height:30vh"></div>
-    <div id="pdetail" class="panel"></div>
+        <main class="main">
+            <div class="top">
+                <h1 id="ptitle">Overview</h1>
+            </div>
 
-    <h3>Ask PayMaster</h3>
-    <div><input id="q" placeholder="e.g. Why was INV-6001 held?" size="60" maxlength="1000">
-        <button id="ask">Ask</button> <span id="qa_msg"></span>
+            <section class="view active" id="v-overview">
+                <div id="cards"></div>
+                <div id="attn"></div>
+            </section>
+
+            <section class="view" id="v-invoices">
+                <div class="box">
+                    <div class="toolbar">
+                        <input type="file" id="ufile" accept=".pdf,.png,.jpg,.jpeg,.txt,.eml">
+                        <button id="upbtn">Upload invoice</button> <span id="umsg"></span>
+                    </div>
+                    <div class="toolbar"><button id="loadi">Refresh</button> <span id="imsg"></span></div>
+                    <div id="igrid" class="ag-theme-quartz" style="height:60vh"></div>
+                </div>
+            </section>
+
+            <section class="view" id="v-review">
+                <div class="box">
+                    <div class="toolbar"><button id="loadq">Refresh</button> <span id="qmsg"></span></div>
+                    <div id="qgrid" class="ag-theme-quartz" style="height:40vh"></div>
+                </div>
+                <div id="detail"></div>
+            </section>
+
+            <section class="view" id="v-exceptions">
+                <div class="box">
+                    <div class="toolbar">
+                        <select id="status">
+                            <option>open</option>
+                            <option>resolved</option>
+                        </select>
+                        <button id="load">Refresh</button> <span id="msg"></span>
+                    </div>
+                    <div id="grid" class="ag-theme-quartz" style="height:45vh"></div>
+                </div>
+                <div id="xdetail" class="panel"></div>
+            </section>
+
+            <section class="view" id="v-payments">
+                <div class="box">
+                    <div class="toolbar"><button id="loadp">Refresh</button> <span id="pmsg"></span></div>
+                    <div id="pgrid" class="ag-theme-quartz" style="height:40vh"></div>
+                </div>
+                <div id="pdetail" class="panel"></div>
+            </section>
+
+            <section class="view" id="v-assistant">
+                <div class="box">
+                    <h3>Ask PayMaster</h3>
+                    <div class="toolbar">
+                        <input id="q" placeholder="e.g. Why was INV-6001 held?" maxlength="1000">
+                        <button id="ask">Ask</button> <span id="qa_msg"></span>
+                    </div>
+                    <div id="answer" class="panel"></div>
+                </div>
+                <div class="box">
+                    <h3>Advise</h3>
+                    <div class="toolbar"><button id="loada">Load advice</button> <span id="amsg"></span></div>
+                    <div id="advice" class="panel"></div>
+                </div>
+            </section>
+
+            <div id="audit" class="panel"></div>
+        </main>
     </div>
-    <div id="answer" class="panel"></div>
-
-    <h3>Advise</h3>
-    <div><button id="loada">Load advice</button> <span id="amsg"></span></div>
-    <div id="advice" class="panel"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
@@ -162,7 +394,7 @@
             columnDefs: [
                 { field: "id", width: 80 },
                 { field: "type", width: 180 },
-                { field: "status", width: 110 },
+                { field: "status", width: 110, cellRenderer: badge },
                 { field: "created_at", width: 200 },
                 { headerName: "Detail", valueGetter: (p) => JSON.stringify(p.data.detail), flex: 1 },
                 { headerName: "AI explanation", valueGetter: (p) => p.data.explanation ? p.data.explanation.explanation : "", flex: 2 },
@@ -280,7 +512,7 @@
                 { field: "vendor", width: 160 },
                 { field: "amount", width: 100 },
                 { field: "currency", width: 90 },
-                { field: "status", width: 100 },
+                { field: "status", width: 120, cellRenderer: badge },
                 { field: "stage", width: 120 },
                 { headerName: "Why", valueGetter: (p) => (p.data.reasons || []).join(", "), flex: 1 },
                 { headerName: "Actions", width: 270, sortable: false, filter: false, cellRenderer: queueActions },
@@ -369,15 +601,16 @@
 
         const BADGE = {
             approved: "#2e7d32", held: "#ed6c02", rejected: "#c62828", paid: "#1565c0", needs_review: "#6a1b9a",
-            success: "#2e7d32", submitted: "#ed6c02", pending: "#ed6c02", unclaimed: "#c62828", failed: "#c62828", unknown: "#c62828"
+            success: "#2e7d32", submitted: "#ed6c02", pending: "#ed6c02", unclaimed: "#c62828", failed: "#c62828", unknown: "#c62828",
+            open: "#ed6c02", resolved: "#2e7d32", returned: "#6a1b9a"
         };
         function badge(p) {
+            const c = BADGE[p.value] || "#777777";
             const s = document.createElement("span");
             s.textContent = p.value || "";
-            s.style.cssText = `background:${BADGE[p.value] || "#777"};color:#fff;padding:2px 8px;border-radius:10px;font-size:12px`;
+            s.style.cssText = `background:${c}1a;color:${c};padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600`;
             return s;
         }
-
         function invoiceActions(p) {
             const box = document.createElement("span");
             const au = document.createElement("button");
@@ -481,9 +714,9 @@
 
         // ---- Summary cards ----
         function card(title, body, warn) {
-            return `<div style="min-width:150px;padding:10px 14px;border:1px solid ${warn ? "#ed6c02" : "#ccc"};border-radius:6px">
-        <div style="font-size:12px;color:#666">${esc(title)}</div>
-        <div style="font-size:22px;font-weight:600">${body}</div></div>`;
+            return `<div style="background:#fff;border:1px solid #e4e2da;border-left:4px solid ${warn ? "#ed6c02" : "#0b6b4f"};border-radius:12px;padding:14px 16px">
+        <div style="font-size:11px;color:#6b6a63;text-transform:uppercase;letter-spacing:.05em">${esc(title)}</div>
+        <div style="font-size:26px;font-weight:700;margin-top:4px">${body}</div></div>`;
         }
         function renderCards(s) {
             const byStatus = Object.entries(s.invoices_by_status).map(([k, n]) => `${esc(k)} ${n}`).join(", ") || "none yet";
@@ -686,7 +919,22 @@
         }
         $("loada").addEventListener("click", loadAdvice);
 
-        $("token").value = sessionStorage.getItem("pm_token") || "";
+        loadQueue();       // also loads invoices, summary cards and "needs attention"
+        loadExceptions();
+        loadPayments();
+    </script>
+    <script>
+        function showView(v) {
+            const a = document.querySelector(`.nav a[data-v="${v}"]`) || document.querySelector('.nav a[data-v="overview"]');
+            document.querySelectorAll(".nav a").forEach(x => x.classList.toggle("active", x === a));
+            document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === "v-" + a.dataset.v));
+            document.getElementById("ptitle").textContent = a.dataset.t;
+        }
+        document.querySelectorAll(".nav a[data-v]").forEach(a => a.addEventListener("click", () => {
+            history.replaceState(null, "", "#" + a.dataset.v);
+            showView(a.dataset.v);
+        }));
+        showView(location.hash.slice(1));
     </script>
 </body>
 

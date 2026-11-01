@@ -6,49 +6,124 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PayMaster: Vendors, POs, Deliveries</title>
     <style>
+        :root {
+            --line: #e4e2da;
+            --muted: #6b6a63;
+            --brand: #0b6b4f;
+            --brand-d: #08543e;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
-            background: #f7f6f2;
+            background: #f4f5f2;
             color: #1c1b18;
-            font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         }
 
-        main {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 16px;
+        .app {
+            display: grid;
+            grid-template-columns: 230px 1fr;
+            min-height: 100vh;
         }
 
-        header {
+        .side {
+            background: #10231c;
+            color: #cfe3da;
+            padding: 18px 12px;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .brand {
+            font-weight: 700;
+            font-size: 19px;
+            color: #fff;
+            padding: 4px 10px 20px;
+        }
+
+        .brand span {
+            color: #4ad4a0;
+        }
+
+        .nav a {
+            display: block;
+            padding: 9px 12px;
+            border-radius: 8px;
+            color: #cfe3da;
+            text-decoration: none;
+            margin-bottom: 3px;
+        }
+
+        .nav a:hover {
+            background: #1a3a2f;
+        }
+
+        .nav a.active {
+            background: var(--brand);
+            color: #fff;
+        }
+
+        .side .foot {
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid #1f3d32;
+        }
+
+        .side .foot button {
+            width: 100%;
+            background: none;
+            border: 1px solid #3a5a4d;
+            color: #cfe3da;
+        }
+
+        .main {
+            padding: 22px 28px;
+            min-width: 0;
+            max-width: 1100px;
+        }
+
+        .main h1 {
+            font-size: 22px;
+            margin: 0 0 16px;
         }
 
         section {
             background: #fff;
-            border: 1px solid #e4e2da;
+            border: 1px solid var(--line);
             border-radius: 12px;
-            padding: 14px 16px;
-            margin: 14px 0;
+            padding: 16px;
+            margin: 0 0 16px;
         }
 
-        h2,
         h3 {
-            margin: 0 0 8px;
+            margin: 0 0 10px;
+            font-size: 15px;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: .9rem;
+            font-size: 13px;
         }
 
-        th,
+        th {
+            background: #f1efe8;
+            text-align: left;
+            padding: 8px;
+            font-weight: 600;
+        }
+
         td {
             text-align: left;
-            padding: 6px 8px;
-            border-top: 1px solid #e4e2da;
+            padding: 8px;
+            border-top: 1px solid var(--line);
         }
 
         form {
@@ -59,120 +134,181 @@
         }
 
         input,
-        select,
-        button {
+        select {
             font: inherit;
             padding: 7px 9px;
             border: 1px solid #cfcdc4;
             border-radius: 8px;
+            background: #fff;
         }
 
         button {
-            background: #0b6b4f;
+            font: inherit;
+            font-weight: 500;
+            padding: 7px 14px;
+            background: var(--brand);
             color: #fff;
             border: 0;
+            border-radius: 8px;
             cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--brand-d);
         }
 
         button.ghost {
             background: none;
-            color: #0b6b4f;
-            border: 1px solid #0b6b4f;
-            padding: 2px 8px;
+            color: var(--brand);
+            border: 1px solid var(--brand);
+            padding: 2px 10px;
+            font-size: 12px;
+        }
+
+        button.ghost:hover {
+            background: var(--brand);
+            color: #fff;
         }
 
         .msg {
             color: #b4531a;
             min-height: 1.2em;
-            font-size: .9rem;
+            font-size: 13px;
+            margin-bottom: 6px;
         }
 
         .ok {
-            color: #0b6b4f;
+            color: var(--brand);
         }
 
-        a {
-            color: #0b6b4f;
+        .tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .tabs button {
+            background: none;
+            color: var(--muted);
+            border-radius: 8px 8px 0 0;
+            padding: 8px 16px;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tabs button:hover {
+            background: #ebeae4;
+            color: #1c1b18;
+        }
+
+        .tabs button.active {
+            color: var(--brand);
+            border-bottom-color: var(--brand);
+            font-weight: 600;
+        }
+
+        .tab {
+            display: none;
+        }
+
+        .tab.active {
+            display: block;
         }
     </style>
 </head>
 
 <body>
-    <main>
-        <header>
-            <h2>Vendors, POs, Deliveries</h2>
-            <div><a href="index.html">Back to console</a> <button class="ghost" id="logout">Log out</button></div>
-        </header>
+    <div class="app">
+        <aside class="side">
+            <div class="brand">Pay<span>Master</span></div>
+            <nav class="nav">
+                <a href="index.html#overview">Overview</a>
+                <a href="index.html#invoices">Invoices</a>
+                <a href="index.html#review">Review queue</a>
+                <a href="index.html#exceptions">Exceptions</a>
+                <a href="index.html#payments">Payments &amp; ledger</a>
+                <a href="index.html#assistant">Ask &amp; Advise</a>
+                <a href="vendors.html" class="active">Vendors &amp; POs</a>
+            </nav>
+            <div class="foot"><button id="logout">Log out</button></div>
+        </aside>
+        <main class="main">
+            <h1>Vendors, POs, Deliveries</h1>
+            <div class="tabs">
+                <button data-tab="vendors" class="active">Vendors</button>
+                <button data-tab="pos">Purchase orders</button>
+                <button data-tab="deliveries">Deliveries</button>
+            </div>
+            <section class="tab active" id="tab-vendors">
+                <h3>Vendors</h3>
+                <form id="vform">
+                    <input id="vname" placeholder="Name" required>
+                    <input id="vcountry" placeholder="Country" size="10" required>
+                    <input id="vemail" type="email" placeholder="Payout (PayPal) email" required>
+                    <button>Add vendor</button>
+                </form>
+                <div class="msg" id="vmsg"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Country</th>
+                            <th>Payout email</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="vbody"></tbody>
+                </table>
+            </section>
 
-        <section>
-            <h3>Vendors</h3>
-            <form id="vform">
-                <input id="vname" placeholder="Name" required>
-                <input id="vcountry" placeholder="Country" size="10" required>
-                <input id="vemail" type="email" placeholder="Payout (PayPal) email" required>
-                <button>Add vendor</button>
-            </form>
-            <div class="msg" id="vmsg"></div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Country</th>
-                        <th>Payout email</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody id="vbody"></tbody>
-            </table>
-        </section>
+            <section class="tab" id="tab-pos">
+                <h3>Purchase orders</h3>
+                <form id="pform">
+                    <select id="pvendor" required></select>
+                    <input id="pnum" placeholder="PO number" size="10" required>
+                    <input id="pamt" type="number" step="0.01" min="0.01" placeholder="Amount" required>
+                    <input id="pcur" value="USD" size="4" maxlength="3">
+                    <button>Create PO</button>
+                </form>
+                <div class="msg" id="pmsg"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>PO</th>
+                            <th>Vendor</th>
+                            <th>Amount</th>
+                            <th>Delivered</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="pbody"></tbody>
+                </table>
+            </section>
 
-        <section>
-            <h3>Purchase orders</h3>
-            <form id="pform">
-                <select id="pvendor" required></select>
-                <input id="pnum" placeholder="PO number" size="10" required>
-                <input id="pamt" type="number" step="0.01" min="0.01" placeholder="Amount" required>
-                <input id="pcur" value="USD" size="4" maxlength="3">
-                <button>Create PO</button>
-            </form>
-            <div class="msg" id="pmsg"></div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>PO</th>
-                        <th>Vendor</th>
-                        <th>Amount</th>
-                        <th>Delivered</th>
-                        <th>Status</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody id="pbody">
-            </table>
-        </section>
-
-        <section>
-            <h3>Deliveries</h3>
-            <form id="dform">
-                <select id="dpo" required></select>
-                <input id="ddesc" placeholder="What arrived" size="24" required>
-                <input id="damt" type="number" step="0.01" min="0.01" placeholder="Value" required>
-                <button>Record delivery</button>
-            </form>
-            <div class="msg" id="dmsg"></div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>PO</th>
-                        <th>Description</th>
-                        <th>Value</th>
-                        <th>Received</th>
-                    </tr>
-                </thead>
-                <tbody id="dbody"></tbody>
-            </table>
-        </section>
-    </main>
+            <section class="tab" id="tab-deliveries">
+                <h3>Deliveries</h3>
+                <form id="dform">
+                    <select id="dpo" required></select>
+                    <input id="ddesc" placeholder="What arrived" size="24" required>
+                    <input id="damt" type="number" step="0.01" min="0.01" placeholder="Value" required>
+                    <button>Record delivery</button>
+                </form>
+                <div class="msg" id="dmsg"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>PO</th>
+                            <th>Description</th>
+                            <th>Value</th>
+                            <th>Received</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dbody"></tbody>
+                </table>
+            </section>
+        </main>
+    </div>
 
     <script>
         const API = "http://localhost:8000";
@@ -264,6 +400,16 @@
             } catch (err) { fail("dmsg", err); }
         };
         refresh();
+
+        function showTab(t) {
+            document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === t));
+            document.querySelectorAll(".tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + t));
+        }
+        document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+            history.replaceState(null, "", "#" + b.dataset.tab);
+            showTab(b.dataset.tab);
+        }));
+        if (location.hash) showTab(location.hash.slice(1));
     </script>
 </body>
 
