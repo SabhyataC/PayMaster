@@ -101,22 +101,19 @@
         <button class="main" id="go">Continue</button>
     </div>
 
+    <script src="pm.js"></script>
     <script>
         const API = "http://localhost:8000";   // same value as in index.html
         const $ = id => document.getElementById(id);
-        const jwt = localStorage.getItem("pm_jwt");
-        if (!jwt) location.replace("login.html");
+        if (!PM.signedIn()) location.replace("login.html");
 
         $("go").onclick = () => location.replace("index.html");
 
         (async () => {
             try {
-                const r = await fetch(`${API}/auth/paypal-account`, {
-                    headers: { "Authorization": "Bearer " + jwt },
-                });
+                const r = await fetch(`${API}/auth/paypal-account`);
                 if (r.status === 401) {
-                    localStorage.removeItem("pm_jwt");
-                    localStorage.removeItem("pm_user");
+                    PM.clear();
                     return location.replace("login.html");
                 }
                 const data = await r.json();

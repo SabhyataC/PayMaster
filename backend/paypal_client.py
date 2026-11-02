@@ -7,9 +7,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE = os.environ["PAYPAL_BASE_URL"]
-CLIENT_ID = os.environ["PAYPAL_CLIENT_ID"]
-SECRET = os.environ["PAYPAL_CLIENT_SECRET"]
+
+
+def _env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is not set")
+    return value
+
+
+def base_url() -> str:
+    return _env("PAYPAL_BASE_URL").rstrip("/")
 
 # Error codes from your sandbox findings that mean "outcome unknown".
 UNKNOWN_OUTCOME_CODES = ("ERRPYO036",)
@@ -22,8 +30,8 @@ def get_token() -> str:
     if _token["value"] and time.time() < _token["expires_at"] - 60:
         return _token["value"]
     r = requests.post(
-        f"{BASE}/v1/oauth2/token",
-        auth=(CLIENT_ID, SECRET),
+        f"{base_url()}/v1/oauth2/token",
+        auth=(_env("PAYPAL_CLIENT_ID"), _env("PAYPAL_CLIENT_SECRET")),
         data={"grant_type": "client_credentials"},
         headers={"Accept": "application/json"},
         timeout=30,
@@ -68,7 +76,7 @@ def send_payout(*, key, email, amount, currency="USD", note="Paymaster payment")
 
     try:
         r = requests.post(
-            f"{BASE}/v1/payments/payouts", json=body, headers=headers, timeout=(5, 30)
+            f"{base_url()}/v1/payments/payouts", json=body, headers=headers, timeout=(5, 30)
         )
     except requests.RequestException as e:
         # timeout or dropped connection: we cannot know if PayPal got it

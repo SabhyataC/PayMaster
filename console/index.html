@@ -257,6 +257,8 @@
                 <a data-v="assistant" data-t="Ask and Advise">Ask &amp; Advise</a>
                 <hr>
                 <a href="vendors.html">Vendors &amp; POs</a>
+                <a href="team.html" class="admin-only">Team &amp; settings</a>
+                <a href="account.html">My account</a>
             </nav>
             <div class="foot">
                 <div id="who"></div>
@@ -276,7 +278,7 @@
 
             <section class="view" id="v-invoices">
                 <div class="box">
-                    <div class="toolbar">
+                    <div class="toolbar rev-only">
                         <input type="file" id="ufile" accept=".pdf,.png,.jpg,.jpeg,.txt,.eml">
                         <button id="upbtn">Upload invoice</button> <span id="umsg"></span>
                     </div>
@@ -335,18 +337,15 @@
         </main>
     </div>
 
+    <script src="pm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
         const pmUser = JSON.parse(localStorage.getItem("pm_user") || "null");
-        if (!localStorage.getItem("pm_jwt")) location.replace("login.html");
+        if (!pmUser) location.replace("login.html");
         else if (pmUser && !pmUser.company_id) location.replace("company.html");
         document.getElementById("who").textContent = pmUser ? `${pmUser.full_name} · ${pmUser.company_name || ""}` : "";
-        document.getElementById("logout").onclick = () => {
-            localStorage.removeItem("pm_jwt");
-            localStorage.removeItem("pm_user");
-            location.replace("login.html");
-        };
+        document.getElementById("logout").onclick = () => PM.logout();
         const $ = (id) => document.getElementById(id);
 
         function actionsCell(p) {
@@ -358,8 +357,8 @@
                 b.addEventListener("click", (ev) => { ev.stopPropagation(); fn(); });
                 box.appendChild(b);
             };
-            mk("Explain", () => act(p.data.id, "explain"));
-            if (p.data.status === "open") {
+            if (PM.canAct()) mk("Explain", () => act(p.data.id, "explain"));
+            if (PM.canAct() && p.data.status === "open") {
                 mk("Resolve", () => {
                     const note = prompt("Note (what did you check in PayPal?):");
                     if (!note) return;
@@ -421,7 +420,7 @@
         }
         $("load").addEventListener("click", loadExceptions);
 
-        const hdr = () => ({ "Authorization": "Bearer " + localStorage.getItem("pm_jwt"), "Content-Type": "application/json" });
+        const hdr = () => ({ "Content-Type": "application/json" });
         const errText = (e) => (e.detail && typeof e.detail === "object") ? e.detail.message : (e.detail || "");
 
 
@@ -473,7 +472,7 @@
                     <h4>Past similar cases (same vendor, same signals)</h4>${list(prec, "No past cases.")}
                     <h4>What has happened so far</h4>${list(hist, "No review or payment steps yet.")}`;
                 const allowed = c.allowed_actions || [];
-                if (allowed.includes("approve") || allowed.includes("reject")) {
+                if (PM.canAct() && (allowed.includes("approve") || allowed.includes("reject"))) {
                     const f = document.createElement("div");
                     f.style.cssText = "margin-top:14px;padding:10px;background:#f6f6f6;border-radius:6px";
                     f.innerHTML = `
@@ -481,8 +480,8 @@
                         <div style="margin:6px 0"><textarea id="d_note" rows="2" cols="60" placeholder="Why? (at least 10 characters)"></textarea></div>
                         <label><input type="checkbox" id="d_confirmed"> I confirmed the bank details with the vendor (needed when the bank details changed)</label>
                         <div style="margin-top:8px">
-                            ${allowed.includes("approve") ? '<button id="d_approve">Approve</button> ' : ""}
-                            ${allowed.includes("reject") ? '<button id="d_reject">Reject</button>' : ""}
+                            ${PM.canAct() && allowed.includes("approve") ? '<button id="d_approve">Approve</button> ' : ""}
+                            ${PM.canAct() && allowed.includes("reject") ? '<button id="d_reject">Reject</button>' : ""}
                             <span id="d_msg" style="margin-left:10px"></span>
                         </div>`;
                     box.appendChild(f);
@@ -544,7 +543,7 @@
             };
             const id = p.data.invoice_id;
             mk("Audit", (ev) => { ev.stopPropagation(); showAudit(id); });
-            if (p.data.status === "held") {
+            if (PM.canAct() && p.data.status === "held") {
                 mk("Approve", () => decide(id, "approve"));
                 mk("Reject", () => decide(id, "reject"));
             } else {
@@ -617,7 +616,7 @@
             au.textContent = "Audit"; au.style.marginRight = "6px";
             au.addEventListener("click", () => showAudit(p.data.id));
             box.appendChild(au);
-            if (p.data.status === "approved") {
+            if (PM.canAct() && p.data.status === "approved") {
                 const b = document.createElement("button");
                 b.textContent = "Pay";
                 b.addEventListener("click", async () => {
@@ -647,7 +646,7 @@
         async function loadAttention() {
             const box = $("attn");
             try {
-                const r = await fetch(`${API}/attention`, { headers: { "Authorization": "Bearer " + localStorage.getItem("pm_jwt") } });
+                const r = await fetch(`${API}/attention`);
                 if (!r.ok) { box.textContent = ""; return; }
                 const d = await r.json();
                 const e = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -689,7 +688,6 @@
             try {
                 const r = await fetch(`${API}/invoices/upload`, {
                     method: "POST",
-                    headers: { "Authorization": "Bearer " + localStorage.getItem("pm_jwt") },
                     body: fd,
                 });
                 const d = await r.json().catch(() => ({}));
@@ -834,14 +832,14 @@
                 : `<p><i>No explanation yet. Click "Explain".</i></p>`;
             const facts = Object.entries(x.detail || {}).map(([k, v]) =>
                 `<tr><td>${esc(k)}</td><td>${esc(typeof v === "object" ? JSON.stringify(v) : v)}</td></tr>`).join("");
-            const resolve = x.status === "open"
+            const resolve = x.status === "open" && PM.canAct()
                 ? `<h4>Resolve</h4>
            <p>Only after you have checked the payout in PayPal.<br>
            <textarea id="x_note" rows="2" cols="60" placeholder="What did you check in PayPal? (at least 10 characters)"></textarea><br>
            <button id="x_resolve">Resolve exception</button> <span id="x_msg"></span></p>`
-                : `<p><b>Resolved</b> by ${esc(x.resolved_by)} at ${esc(String(x.resolved_at).slice(0, 19).replace("T", " "))}: ${esc(x.note)}</p>`;
+                : x.status === "open" ? "" : `<p><b>Resolved</b> by ${esc(x.resolved_by)} at ${esc(String(x.resolved_at).slice(0, 19).replace("T", " "))}: ${esc(x.note)}</p>`;
             return `<h3>Exception #${esc(x.id)}: ${esc(x.type)} (<b>${esc(x.status)}</b>)</h3>
-        <p><button id="x_explain">Explain</button>
+        <p>${PM.canAct() ? '<button id="x_explain">Explain</button>' : ""}
         ${x.payment_id ? '<button id="x_audit">Show invoice audit timeline</button>' : "<i>No payment attached: PayPal shows a payout we have no record of.</i>"}</p>
         ${ai}
         ${facts ? `<table class="tbl"><thead><tr><th>Fact</th><th>Value</th></tr></thead><tbody>${facts}</tbody></table>` : ""}
@@ -857,7 +855,7 @@
                 const x = await r.json().catch(() => ({}));
                 if (!r.ok) { box.textContent = `Error ${r.status}: ${errText(x)}`; return; }
                 box.innerHTML = renderException(x);
-                $("x_explain").addEventListener("click", () => act(id, "explain"));
+                if ($("x_explain")) $("x_explain").addEventListener("click", () => act(id, "explain"));
                 if ($("x_audit")) $("x_audit").addEventListener("click", () => auditForPayment(x.payment_id));
                 if ($("x_resolve")) $("x_resolve").addEventListener("click", () => submitResolve(id));
             } catch (e) { box.textContent = "Cannot reach the API (is uvicorn running?)"; }

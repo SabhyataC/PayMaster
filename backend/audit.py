@@ -7,6 +7,8 @@ _OWNER_SQL = {
     "payment":    "SELECT company_id FROM payments WHERE id = %s",
     "extraction": "SELECT company_id FROM extractions WHERE id = %s",
     "vendor":     "SELECT company_id FROM vendors WHERE id = %s",
+    "user":       "SELECT company_id FROM users WHERE id = %s",
+    "company":    "SELECT id FROM companies WHERE id = %s",
 }
 
 

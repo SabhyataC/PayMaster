@@ -7,8 +7,8 @@ from datetime import datetime
 from decimal import Decimal
 
 from backend.tools import (
-    _query, find_similar_invoices, get_deliveries, get_po, get_vendor_bank_history,
-    normalize_invoice_number,
+    _query, current_tenant, find_similar_invoices, get_deliveries, get_po,
+    get_vendor_bank_history, normalize_invoice_number, tenant,
 )
 from backend.verdict import (
     REASON_ALL_PASSED, REASON_AMOUNT_OUT_OF_TOLERANCE, REASON_BANK_CHANGED,
@@ -25,7 +25,7 @@ HOLD_REASONS = {REASON_DELIVERY_NOT_RECEIVED, REASON_AMOUNT_OUT_OF_TOLERANCE, RE
 
 def _load_invoice(invoice_id):
     rows = _query(
-        """SELECT i.id, i.vendor_id, i.invoice_number, i.amount, i.currency,
+        """SELECT i.id, i.company_id, i.vendor_id, i.invoice_number, i.amount, i.currency,
                   i.destination_email, i.status, i.received_at, po.po_number
            FROM invoices i
            LEFT JOIN purchase_orders po ON po.id = i.po_id
@@ -40,6 +40,11 @@ def _load_invoice(invoice_id):
 def run_hard_checks(invoice_id):
     """Run every check. Returns {'invoice': ..., 'evidence': [...], 'reasons': [...]}."""
     inv = _load_invoice(invoice_id)
+    with tenant(inv["company_id"]):
+        return _run_hard_checks(inv)
+
+
+def _run_hard_checks(inv):
     evidence, reasons = [], []
 
     def record(ev, reason):
@@ -85,8 +90,8 @@ def run_hard_checks(invoice_id):
         this_time = datetime.fromisoformat(inv["received_at"])
         others = _query(
             """SELECT invoice_number, amount, received_at FROM invoices
-               WHERE po_id = %s AND id <> %s AND status <> 'rejected'""",
-            (po["id"], inv["id"]),
+               WHERE po_id = %s AND id <> %s AND status <> 'rejected' AND company_id = %s""",
+            (po["id"], inv["id"], current_tenant()),
         )
         earlier = [
             o for o in others

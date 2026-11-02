@@ -25,7 +25,7 @@ Known gap: if a payment we booked as `success` is later RETURNED by PayPal, reco
 
 ## Day 17: exception API and AI explainer
 
-Endpoints (all need the `X-Review-Token` header):
+Endpoints (all need a logged-in member of the company; explain and resolve need the reviewer or admin role):
 - `GET /exceptions?status=open|resolved`: list exceptions
 - `GET /exceptions/{id}`: one exception, with its saved explanation
 - `POST /exceptions/{id}/explain`: AI writes a plain-English explanation and a safe next step

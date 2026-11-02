@@ -8,13 +8,18 @@ MAX_AUTO_PAY = Decimal("5000.00")
 ALLOWED_CURRENCIES = {"USD", "GBP", "EUR"}
 
 
+def auto_pay_limit(conn, company_id) -> Decimal:
+    row = conn.execute("SELECT auto_pay_limit FROM companies WHERE id = %s", (company_id,)).fetchone()
+    return Decimal(row[0]) if row and row[0] is not None else MAX_AUTO_PAY
+
+
 def check_policy(conn, invoice_id) -> dict:
     """
     Decide if an invoice may be paid automatically.
     Returns {"outcome": "pass" | "hold" | "block", "reasons": [...], "inputs": {...}}
     """
     row = conn.execute(
-        "SELECT status, amount, currency, destination_email FROM invoices WHERE id = %s",
+        "SELECT status, amount, currency, destination_email, company_id FROM invoices WHERE id = %s",
         (invoice_id,),
     ).fetchone()
 
@@ -25,7 +30,8 @@ def check_policy(conn, invoice_id) -> dict:
             "inputs": {"invoice_id": str(invoice_id)},
         }
 
-    status, amount, currency, email = row
+    status, amount, currency, email, company_id = row
+    limit = auto_pay_limit(conn, company_id)
     blocks, holds = [], []
 
     # --- block rules: never pay ---
@@ -46,7 +52,7 @@ def check_policy(conn, invoice_id) -> dict:
     if fraud_risk == "high":
         holds.append("fraud_risk_high")
 
-    if amount is not None and amount > MAX_AUTO_PAY:
+    if amount is not None and amount > limit:
         holds.append("amount_over_limit")
 
     new_payee = None
@@ -55,9 +61,10 @@ def check_policy(conn, invoice_id) -> dict:
             """
             SELECT 1 FROM payments
             WHERE lower(destination_email) = lower(%s) AND status = 'success'
+              AND company_id = %s
             LIMIT 1
             """,
-            (email,),
+            (email, company_id),
         ).fetchone()
         new_payee = paid_before is None
         if new_payee:
@@ -79,7 +86,7 @@ def check_policy(conn, invoice_id) -> dict:
             "amount": str(amount),
             "currency": currency,
             "destination_email": email,
-            "max_auto_pay": str(MAX_AUTO_PAY),
+            "max_auto_pay": str(limit),
             "new_payee": new_payee,
             "fraud_risk": fraud_risk,
         },

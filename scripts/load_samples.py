@@ -37,8 +37,8 @@ def main():
                 raw = blob = path.read_bytes()
             cur.execute(
                 """INSERT INTO extractions
-                   (source_name, source_format, source_text, source_bytes, source_sha256, status)
-                   VALUES (%s, %s, %s, %s, %s, 'pending')""",
+                   (source_name, source_format, source_text, source_bytes, source_sha256, status, company_id)
+                   VALUES (%s, %s, %s, %s, %s, 'pending', (SELECT id FROM companies ORDER BY created_at LIMIT 1))""",
                 (name, s["format"], text, blob, hashlib.sha256(raw).hexdigest()),
             )
             added += 1

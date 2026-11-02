@@ -4,7 +4,8 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.auth import current_member
+from backend.auth import current_member, admin_only
+from backend.audit import log_decision
 from backend.db import get_conn
 from backend.tools import normalize_po_number
 
@@ -44,20 +45,25 @@ def list_pos(user: dict = Depends(current_member)):
 
 
 @router.post("/pos")
-def create_po(body: POIn, user: dict = Depends(current_member)):
+def create_po(body: POIn, user: dict = Depends(admin_only)):
     number = normalize_po_number(body.po_number)
     with get_conn() as conn:
-        ok = conn.execute("SELECT 1 FROM vendors WHERE id = %s AND company_id = %s",
+        ok = conn.execute("SELECT 1 FROM vendors WHERE id::text = %s AND company_id = %s",
                           (body.vendor_id, user["company_id"])).fetchone()
         if not ok:
             raise HTTPException(404, "vendor not found")
-        if conn.execute("SELECT 1 FROM purchase_orders WHERE po_number = %s", (number,)).fetchone():
+        if conn.execute("SELECT 1 FROM purchase_orders WHERE po_number = %s AND company_id = %s",
+                        (number, user["company_id"])).fetchone():
             raise HTTPException(409, f"{number} already exists")
         po_id = conn.execute(
             "INSERT INTO purchase_orders (po_number, vendor_id, amount, currency, company_id) "
             "VALUES (%s, %s, %s, %s, %s) RETURNING id",
             (number, body.vendor_id, body.amount, body.currency.upper(), user["company_id"]),
         ).fetchone()[0]
+        log_decision(conn, stage="po", entity_type="purchase_order", entity_id=po_id, decision="po_created",
+                     reason=f"{user['full_name']} created {number} for {body.amount} {body.currency.upper()}",
+                     inputs={"by": user["id"], "vendor_id": body.vendor_id}, actor="human",
+                     company_id=user["company_id"])
         row = conn.execute(PO_SELECT + " WHERE po.id = %s", (po_id,)).fetchone()
     return _po(row)
 
@@ -75,9 +81,9 @@ def list_deliveries(user: dict = Depends(current_member)):
 
 
 @router.post("/pos/{po_id}/deliveries")
-def add_delivery(po_id: str, body: DeliveryIn, user: dict = Depends(current_member)):
+def add_delivery(po_id: str, body: DeliveryIn, user: dict = Depends(admin_only)):
     with get_conn() as conn:
-        po = conn.execute("SELECT po_number FROM purchase_orders WHERE id = %s AND company_id = %s",
+        po = conn.execute("SELECT po_number FROM purchase_orders WHERE id::text = %s AND company_id = %s FOR UPDATE",
                           (po_id, user["company_id"])).fetchone()
         if not po:
             raise HTTPException(404, "PO not found")
@@ -86,17 +92,21 @@ def add_delivery(po_id: str, body: DeliveryIn, user: dict = Depends(current_memb
             "VALUES (%s, %s, %s, %s) RETURNING id, received_at",
             (po_id, body.description.strip(), body.amount, user["company_id"]),
         ).fetchone()
+        log_decision(conn, stage="po", entity_type="purchase_order", entity_id=po_id, decision="delivery_recorded",
+                     reason=f"{user['full_name']} recorded a delivery of {body.amount} on {po[0]}",
+                     inputs={"by": user["id"], "amount": str(body.amount)}, actor="human",
+                     company_id=user["company_id"])
     return {"id": str(r[0]), "po_number": po[0], "description": body.description.strip(),
             "amount": float(body.amount), "received_at": r[1].isoformat()}
 
 @router.post("/pos/{po_id}/deliver-all")
-def deliver_all(po_id: str, user: dict = Depends(current_member)):
+def deliver_all(po_id: str, user: dict = Depends(admin_only)):
     """Record one delivery for whatever part of the PO is not yet delivered."""
     with get_conn() as conn:
         row = conn.execute(
             "SELECT po.po_number, po.amount, "
             "COALESCE((SELECT SUM(d.amount) FROM deliveries d WHERE d.po_id = po.id), 0) "
-            "FROM purchase_orders po WHERE po.id = %s AND po.company_id = %s",
+            "FROM purchase_orders po WHERE po.id::text = %s AND po.company_id = %s FOR UPDATE OF po",
             (po_id, user["company_id"]),
         ).fetchone()
         if not row:
@@ -109,5 +119,9 @@ def deliver_all(po_id: str, user: dict = Depends(current_member)):
             "VALUES (%s, %s, %s, %s) RETURNING id, received_at",
             (po_id, "Fully delivered (marked in console)", remaining, user["company_id"]),
         ).fetchone()
+        log_decision(conn, stage="po", entity_type="purchase_order", entity_id=po_id, decision="delivery_recorded",
+                     reason=f"{user['full_name']} marked {row[0]} fully delivered ({remaining})",
+                     inputs={"by": user["id"], "amount": str(remaining)}, actor="human",
+                     company_id=user["company_id"])
     return {"id": str(r[0]), "po_number": row[0], "amount": float(remaining),
             "received_at": r[1].isoformat()}

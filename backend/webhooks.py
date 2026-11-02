@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import contextmanager
 
 import requests
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -10,9 +11,13 @@ from backend.corrections_api import router as corrections_router
 from fastapi import Depends
 from backend.auth import current_member
 
-from backend.paypal_client import BASE, get_token  # also loads .env
+from backend.paypal_client import base_url, get_token  # also loads .env
 
-WEBHOOK_ID = os.environ["PAYPAL_WEBHOOK_ID"]
+MAX_WEBHOOK_BYTES = 256 * 1024
+
+
+def _webhook_id() -> str:
+    return os.environ.get("PAYPAL_WEBHOOK_ID", "").strip()
 
 # PayPal puts these in the request headers of every webhook.
 HEADER_FIELDS = {
@@ -25,14 +30,17 @@ HEADER_FIELDS = {
 
 
 def verify_signature(headers, raw_body: str) -> bool:
-    """Ask PayPal whether this webhook is genuine."""
+    """Ask PayPal whether this webhook is genuine. With no PAYPAL_WEBHOOK_ID set nothing is genuine."""
+    webhook_id = _webhook_id()
+    if not webhook_id:
+        return False
     parts = {}
     for field, header in HEADER_FIELDS.items():
         value = headers.get(header)
         if not value:
             return False
         parts[field] = value
-    parts["webhook_id"] = WEBHOOK_ID
+    parts["webhook_id"] = webhook_id
 
     # Build the JSON by hand so the event goes to PayPal exactly as we received it.
     # (Re-encoding it can change the text and break the signature match.)
@@ -41,7 +49,7 @@ def verify_signature(headers, raw_body: str) -> bool:
 
     try:
         r = requests.post(
-            f"{BASE}/v1/notifications/verify-webhook-signature",
+            f"{base_url()}/v1/notifications/verify-webhook-signature",
             data=payload,
             headers={
                 "Authorization": f"Bearer {get_token()}",
@@ -49,7 +57,7 @@ def verify_signature(headers, raw_body: str) -> bool:
             },
             timeout=30,
         )
-    except requests.RequestException:
+    except Exception:
         return False
     return r.ok and r.json().get("verification_status") == "SUCCESS"
 
@@ -64,31 +72,88 @@ def health():
 
 @router.post("/webhooks/paypal")
 async def paypal_webhook(request: Request):
-    raw = (await request.body()).decode("utf-8")
+    if not _webhook_id():
+        raise HTTPException(status_code=503, detail="webhook is not configured")
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="body too large")
+    body = await request.body()
+    if len(body) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="body too large")
+    raw = body.decode("utf-8", errors="replace")
 
     if not verify_signature(request.headers, raw):
         raise HTTPException(status_code=400, detail="invalid signature")
 
-    event = json.loads(raw)
-    resource = event.get("resource", {})
-    batch_id = resource.get("payout_batch_id") or resource.get(
-        "batch_header", {}
-    ).get("payout_batch_id")
-    print("VERIFIED:", event.get("event_type"), batch_id)
-
-    if not batch_id:
-        return {"received": True, "action": "ignored"}
-
     try:
-        with get_conn() as conn:
-            result = sync_payment(conn, batch_id)
-    except Exception as e:
-        print("SYNC FAILED:", e)
-        # A non-2xx answer makes PayPal send the event again later. That is what we want.
-        raise HTTPException(status_code=500, detail="sync failed")
+        event = json.loads(raw)
+        resource = event.get("resource") or {}
+        event_id = str(event.get("id") or request.headers.get("paypal-transmission-id") or "")
+        event_type = str(event.get("event_type") or "")
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid body")
+    if not event_id:
+        raise HTTPException(status_code=400, detail="event has no id")
+    batch_id = resource.get("payout_batch_id") or (resource.get("batch_header") or {}).get("payout_batch_id")
 
-    print("SYNC:", result)
+    result = record_and_process(event_id, event_type, batch_id, event)
     return {"received": True, **result}
+
+
+def record_and_process(event_id, event_type, batch_id, event):
+    """Each PayPal event is processed once. A replay of one already processed is acknowledged and
+    ignored; one that failed before is tried again (PayPal re-sends on a non-2xx answer)."""
+    from psycopg.types.json import Jsonb
+
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO webhook_events (event_id, event_type, batch_id, payload)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (event_id) DO UPDATE SET attempts = webhook_events.attempts + 1""",
+            (event_id, event_type, batch_id, Jsonb(event)),
+        )
+
+    with _event_lock(event_id):
+        with get_conn() as conn:
+            done = conn.execute("SELECT processed_at FROM webhook_events WHERE event_id = %s",
+                                (event_id,)).fetchone()[0]
+        if done is not None:
+            return {"action": "duplicate"}
+
+        if not batch_id:
+            _mark_processed(event_id, "ignored")
+            return {"action": "ignored"}
+
+        try:
+            with get_conn() as conn:
+                result = sync_payment(conn, batch_id)
+        except Exception as e:
+            print("SYNC FAILED:", type(e).__name__)
+            raise HTTPException(status_code=500, detail="sync failed")
+
+        _mark_processed(event_id, result.get("result", "done"))
+        return result
+
+
+@contextmanager
+def _event_lock(event_id):
+    """One process at a time per event id. A second copy of the same event waits here, then sees the
+    first one's outcome. The lock belongs to this connection, so it is released even if we crash."""
+    import psycopg
+    from backend.db import DATABASE_URL
+    with psycopg.connect(DATABASE_URL, autocommit=True) as lock_conn:
+        lock_conn.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (event_id,))
+        try:
+            yield
+        finally:
+            lock_conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (event_id,))
+
+
+def _mark_processed(event_id, outcome):
+    with get_conn() as conn:
+        conn.execute("UPDATE webhook_events SET processed_at = now(), result = %s WHERE event_id = %s",
+                     (outcome, event_id))
+
 
 from backend.review_api import router as review_router
 from backend.exceptions_api import router as exceptions_router
@@ -104,15 +169,48 @@ from backend.upload_api import router as upload_router
 from backend.attention_api import router as attention_router
 
 app = FastAPI()
+def console_origins():
+    raw = os.environ.get("CONSOLE_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500")
+    origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    if not origins or any(o == "*" or "*" in o for o in origins):
+        raise RuntimeError("CONSOLE_ORIGINS must list exact origins; '*' is not allowed")
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5500", "http://127.0.0.1:5500"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_origins=console_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF"],
 )
+
+
+@app.middleware("http")
+async def limit_upload_size(request, call_next):
+    if request.method == "POST" and request.url.path == "/invoices/upload":
+        from backend.upload_checks import MAX_BYTES
+        from fastapi.responses import JSONResponse
+        length = request.headers.get("content-length", "")
+        if not length.isdigit():
+            return JSONResponse({"detail": "Content-Length is required"}, status_code=411)
+        if int(length) > MAX_BYTES + 64 * 1024:
+            return JSONResponse({"detail": "File is larger than 10 MB"}, status_code=413)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
 guard = [Depends(current_member)]
 app.include_router(router)   # PayPal webhooks: stay open
 app.include_router(auth_router)   # signup/login: stay open
+from backend.admin_api import router as admin_router
+app.include_router(admin_router)   # admin-only: each route checks the admin role
 app.include_router(review_router, dependencies=guard)
 app.include_router(exceptions_router, dependencies=guard)
 app.include_router(run_router, dependencies=guard)

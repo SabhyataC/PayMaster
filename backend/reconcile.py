@@ -1,6 +1,6 @@
 """Reconcile: compare our payment records with PayPal and log exceptions."""
 from backend.audit import log_decision
-from backend.paypal_client import BASE, get_token
+from backend.paypal_client import base_url, get_token
 from backend.settle import fetch_batch, fetch_item, settlement_from_item
 
 from datetime import datetime, timedelta, timezone
@@ -29,7 +29,7 @@ def add_exception(conn, payment_id, type_, detail):
         )
         return cur.fetchone() is not None
 
-def detect_stuck(conn):
+def detect_stuck(conn, company_id=None):
     """Payments stuck in one status for longer than its limit.
     Returns {exception_type: new_count}."""
     rules = [
@@ -44,8 +44,9 @@ def detect_stuck(conn):
                 """SELECT id, invoice_id, status, paypal_batch_id,
                           EXTRACT(EPOCH FROM (now() - updated_at)) / 3600
                    FROM payments
-                   WHERE status = ANY(%s) AND now() - updated_at > %s""",
-                (list(statuses), limit),
+                   WHERE status = ANY(%s) AND now() - updated_at > %s
+                     AND (%s::uuid IS NULL OR company_id = %s::uuid)""",
+                (list(statuses), limit, company_id, company_id),
             )
             rows = cur.fetchall()
         for pid, invoice_id, status, batch_id, age_hours in rows:
@@ -59,7 +60,7 @@ def detect_stuck(conn):
                 new_counts[type_] = new_counts.get(type_, 0) + 1
     return new_counts
 
-def detect_paypal_disagreements(conn):
+def detect_paypal_disagreements(conn, company_id=None):
     """For old 'success' payments, ask PayPal again and compare.
     Returns {exception_type: new_count}."""
     with conn.cursor() as cur:
@@ -71,8 +72,9 @@ def detect_paypal_disagreements(conn):
                LEFT JOIN settlements s ON s.payment_id = p.id
                WHERE p.status = 'success'
                  AND p.paypal_item_id IS NOT NULL
-                 AND now() - p.created_at > %s""",
-            (timedelta(hours=MIN_AGE_HOURS),),
+                 AND now() - p.created_at > %s
+                 AND (%s::uuid IS NULL OR p.company_id = %s::uuid)""",
+            (timedelta(hours=MIN_AGE_HOURS), company_id, company_id),
         )
         rows = cur.fetchall()
 
@@ -144,7 +146,7 @@ def search_transactions(start, end):
     rows, page = [], 1
     while True:
         r = requests.get(
-            f"{BASE}/v1/reporting/transactions",
+            f"{base_url()}/v1/reporting/transactions",
             headers={"Authorization": f"Bearer {get_token()}"},
             params={"start_date": start.strftime(fmt), "end_date": end.strftime(fmt),
                     "fields": "transaction_info", "page_size": 100, "page": page},
@@ -158,8 +160,19 @@ def search_transactions(start, end):
         page += 1
 
 
+PLATFORM_COMPANY = "Platform operations (system)"
+
+
+def platform_company_id(conn):
+    row = conn.execute("SELECT id FROM companies WHERE name = %s", (PLATFORM_COMPANY,)).fetchone()
+    if row:
+        return row[0]
+    return conn.execute("INSERT INTO companies (name) VALUES (%s) RETURNING id", (PLATFORM_COMPANY,)).fetchone()[0]
+
+
 def detect_unknown_payouts(conn):
-    """PayPal shows money leaving the account that we have no payment for."""
+    """PayPal shows money leaving the shared account that no company has a payment for.
+    No company owns such a payout, so it is reported to the platform operator only."""
     with conn.cursor() as cur:
         cur.execute("SELECT min(created_at) FROM payments")
         first = cur.fetchone()[0]
@@ -198,7 +211,7 @@ def detect_unknown_payouts(conn):
                   "amount": amount.get("value"), "currency": amount.get("currency_code"),
                   "date": info.get("transaction_initiation_date"),
                   "paypal_status": info.get("transaction_status")}
-        if add_orphan_exception(conn, txn_id, detail):
+        if add_orphan_exception(conn, txn_id, detail, platform_company_id(conn)):
             new_counts["unknown_payout"] = new_counts.get("unknown_payout", 0) + 1
     return new_counts
 
@@ -208,7 +221,7 @@ INVOICE_AFTER_RETURN = "approved"  # payable again; change to "held" for human r
 def cancel_item(item_id):
     """Ask PayPal to cancel an unclaimed payout item (only works once the batch is SUCCESS)."""
     r = requests.post(
-        f"{BASE}/v1/payments/payouts-item/{item_id}/cancel",
+        f"{base_url()}/v1/payments/payouts-item/{item_id}/cancel",
         headers={"Authorization": f"Bearer {get_token()}",
                  "Content-Type": "application/json"},
         timeout=30,
@@ -217,7 +230,7 @@ def cancel_item(item_id):
     return r.json() if r.text else {}
 
 
-def handle_unclaimed(conn):
+def handle_unclaimed(conn, company_id=None):
     """Cancel old unclaimed payouts; once PayPal says RETURNED, close the payment.
     Returns {"cancel_requested": n, "returned": n}."""
     with conn.cursor() as cur:
@@ -225,8 +238,9 @@ def handle_unclaimed(conn):
             """SELECT id, invoice_id, paypal_batch_id, paypal_item_id
                FROM payments
                WHERE status = 'unclaimed' AND paypal_item_id IS NOT NULL
-                 AND now() - updated_at > %s""",
-            (UNCLAIMED_LIMIT,),
+                 AND now() - updated_at > %s
+                 AND (%s::uuid IS NULL OR company_id = %s::uuid)""",
+            (UNCLAIMED_LIMIT, company_id, company_id),
         )
         rows = cur.fetchall()
 
@@ -279,17 +293,25 @@ def handle_unclaimed(conn):
             print(f"reconcile: could not handle unclaimed payment {pid}: {e}")
     return counts
 
-def run_reconcile(conn, commit=True):
-    """Check every payment against PayPal. Returns {exception_type: new_count}."""
+def run_reconcile(conn, commit=True, company_id=None):
+    """Check payments against PayPal. Returns {exception_type: new_count}.
+    With company_id, only that company's payments are looked at or changed. Without it (the
+    platform job: python -m backend.reconcile) every company is covered, and payouts that no
+    company owns are reported to the platform operator."""
     new_counts = {}
-    for k, v in detect_stuck(conn).items():
-        new_counts[k] = new_counts.get(k, 0) + v
-    for k, v in detect_paypal_disagreements(conn).items():
-        new_counts[k] = new_counts.get(k, 0) + v
-    for k, v in detect_unknown_payouts(conn).items():
-        new_counts[k] = new_counts.get(k, 0) + v
-    for k, v in handle_unclaimed(conn).items():
-        new_counts[k] = new_counts.get(k, 0) + v
+    steps = [detect_stuck(conn, company_id), detect_paypal_disagreements(conn, company_id)]
+    if company_id is None:
+        steps.append(detect_unknown_payouts(conn))
+    steps.append(handle_unclaimed(conn, company_id))
+    for counts in steps:
+        for k, v in counts.items():
+            new_counts[k] = new_counts.get(k, 0) + v
     if commit:
         conn.commit()
     return new_counts
+
+
+if __name__ == "__main__":
+    from backend.db import get_conn
+    with get_conn() as _conn:
+        print(run_reconcile(_conn))

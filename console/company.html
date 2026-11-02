@@ -103,21 +103,17 @@
         <div class="out"><a id="logout">Log out</a></div>
     </div>
 
+    <script src="pm.js"></script>
     <script>
         const API = "http://localhost:8000";   // same value as in index.html
         const $ = id => document.getElementById(id);
-        const jwt = localStorage.getItem("pm_jwt");
         const user = JSON.parse(localStorage.getItem("pm_user") || "null");
 
-        if (!jwt) location.replace("login.html");
+        if (!user) location.replace("login.html");
         else if (user && user.company_id) location.replace("index.html");
         else if (user) $("sub").textContent = "Welcome, " + user.full_name + ". One last step before you start";
 
-        function logout() {
-            localStorage.removeItem("pm_jwt");
-            localStorage.removeItem("pm_user");
-            location.replace("login.html");
-        }
+        function logout() { PM.logout(); }
         $("logout").onclick = logout;
 
         async function submit() {
@@ -126,7 +122,7 @@
             try {
                 const r = await fetch(`${API}/auth/company`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + jwt },
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ name: $("company").value }),
                 });
                 const data = await r.json().catch(() => ({}));

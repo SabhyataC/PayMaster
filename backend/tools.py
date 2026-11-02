@@ -6,6 +6,8 @@ Money amounts come back as strings (e.g. "860.50") so no precision is lost;
 checks.py turns them into Decimal.
 """
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -33,6 +35,38 @@ def normalize_invoice_number(raw):
 
 def _normalize_name(raw):
     return re.sub(r"[^a-z0-9 ]", "", str(raw).lower()).strip()
+
+
+# ---------- tenant binding ----------
+
+_tenant = ContextVar("pm_tenant", default=None)
+
+
+@contextmanager
+def tenant(company_id):
+    """Every tool and check below reads only this company's rows. Code sets it from the invoice's
+    own row; the AI cannot pass or change it."""
+    if not company_id:
+        raise RuntimeError("tenant is required")
+    token = _tenant.set(str(company_id))
+    try:
+        yield
+    finally:
+        _tenant.reset(token)
+
+
+def current_tenant():
+    cid = _tenant.get()
+    if not cid:
+        raise RuntimeError("no tenant bound: refusing an unscoped read")
+    return cid
+
+
+def company_of_invoice(invoice_id):
+    rows = _query("SELECT company_id FROM invoices WHERE id = %s", (invoice_id,))
+    if not rows or not rows[0]["company_id"]:
+        raise ValueError(f"invoice {invoice_id} not found")
+    return rows[0]["company_id"]
 
 
 # ---------- internals ----------
@@ -70,8 +104,8 @@ def get_po(po_number):
                   po.amount, po.currency, po.status
            FROM purchase_orders po
            JOIN vendors v ON v.id = po.vendor_id
-           WHERE po.po_number = %s""",
-        (normalize_po_number(po_number),),
+           WHERE po.po_number = %s AND po.company_id = %s AND v.company_id = po.company_id""",
+        (normalize_po_number(po_number), current_tenant()),
     )
     return rows[0] if rows else None
 
@@ -82,9 +116,9 @@ def get_deliveries(po_number):
         """SELECT d.id, d.description, d.amount, d.received_at
            FROM deliveries d
            JOIN purchase_orders po ON po.id = d.po_id
-           WHERE po.po_number = %s
+           WHERE po.po_number = %s AND po.company_id = %s AND d.company_id = po.company_id
            ORDER BY d.received_at""",
-        (normalize_po_number(po_number),),
+        (normalize_po_number(po_number), current_tenant()),
     )
     total = sum((Decimal(r["amount"]) for r in rows), Decimal("0"))
     return {
@@ -100,9 +134,9 @@ def get_vendor_bank_history(vendor_id):
     return _query(
         """SELECT destination_email, valid_from, valid_to, change_source
            FROM vendor_bank_history
-           WHERE vendor_id = %s
+           WHERE vendor_id = %s AND company_id = %s
            ORDER BY valid_from DESC""",
-        (vendor_id,),
+        (vendor_id, current_tenant()),
     )
 
 
@@ -112,9 +146,9 @@ def find_similar_invoices(vendor_id, invoice_number, amount=None, exclude_invoic
     rows = _query(
         """SELECT id, invoice_number, amount, currency, status, po_id, received_at
            FROM invoices
-           WHERE vendor_id = %s
+           WHERE vendor_id = %s AND company_id = %s
              AND (%s::uuid IS NULL OR id <> %s::uuid)""",
-        (vendor_id, exclude_invoice_id, exclude_invoice_id),
+        (vendor_id, current_tenant(), exclude_invoice_id, exclude_invoice_id),
     )
     wanted = normalize_invoice_number(invoice_number)
     matches = []
@@ -133,7 +167,7 @@ def search_vendors(name, min_score=0.6):
     """Vendors whose name is the same or close to `name`, best match first.
     Used to spot look-alike names (e.g. Acme vs Acrne)."""
     wanted = _normalize_name(name)
-    vendors = _query("SELECT id, name, country FROM vendors")
+    vendors = _query("SELECT id, name, country FROM vendors WHERE company_id = %s", (current_tenant(),))
     results = []
     for v in vendors:
         n = _normalize_name(v["name"])
@@ -144,6 +178,7 @@ def search_vendors(name, min_score=0.6):
             results.append({**v, "score": round(score, 3)})
     return sorted(results, key=lambda r: r["score"], reverse=True)
 
+
 def find_similar_precedents(vendor_id, signals, exclude_invoice_id=None, limit=5):
     """Past human reviews for the same vendor where exactly the same fraud signals fired.
     Read-only. It can inform and explain, it can never approve anything.
@@ -153,11 +188,11 @@ def find_similar_precedents(vendor_id, signals, exclude_invoice_id=None, limit=5
         """SELECT invoice_number, ai_decision, human_decision, reviewer, outcome, signals,
                   reviewed_at, left(note, 300) AS note
            FROM precedents
-           WHERE vendor_id = %s
+           WHERE vendor_id = %s AND company_id = %s
              AND signals = %s::text[]
              AND (%s::uuid IS NULL OR invoice_id <> %s::uuid)
            ORDER BY reviewed_at DESC
            LIMIT %s""",
-        (vendor_id, wanted, exclude_invoice_id, exclude_invoice_id, limit),
+        (vendor_id, current_tenant(), wanted, exclude_invoice_id, exclude_invoice_id, min(int(limit), 20)),
     )
     return [{**r, "note_is_untrusted_text": True} for r in rows]
