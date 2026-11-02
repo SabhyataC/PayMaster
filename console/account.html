@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: My account</title>
+    <style>
+        body { margin: 0; min-height: 100vh; background: #f7f6f2; color: #1c1b18; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        .wrap { max-width: 440px; margin: 24px auto; padding: 0 16px; }
+        .card { background: #fff; border: 1px solid #e4e2da; border-radius: 12px; padding: 22px; margin-bottom: 18px; }
+        h1 { font-size: 1.4rem; margin: 0 0 4px; }
+        h2 { font-size: 1.05rem; margin: 0 0 10px; }
+        .sub { color: #6b6a63; margin: 0 0 14px; font-size: .9rem; }
+        label { display: block; font-size: .85rem; margin: 12px 0 4px; }
+        input, select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #cfcdc4; border-radius: 8px; font: inherit; }
+        button { padding: 8px 14px; border: 0; border-radius: 8px; background: #0b6b4f; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+        button.ghost { background: #fff; color: #0b6b4f; border: 1px solid #0b6b4f; }
+        button:disabled { opacity: .6; cursor: default; }
+        .msg { font-size: .9rem; margin-top: 10px; min-height: 1.2em; }
+        .err { color: #b4531a; }
+        .ok { color: #0b6b4f; }
+        a { color: #0b6b4f; }
+        table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+        th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eceae2; vertical-align: middle; }
+        td select { width: auto; padding: 5px 8px; }
+        .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
+        code { background: #f1efe8; padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="card" id="change">
+            <h1>Change your password</h1>
+            <p class="sub" id="sub">Choose a password only you know.</p>
+            <label for="cur">Current (or temporary) password</label>
+            <input id="cur" type="password" autocomplete="current-password">
+            <label for="new1">New password (10 to 72 characters)</label>
+            <input id="new1" type="password" autocomplete="new-password">
+            <label for="new2">New password again</label>
+            <input id="new2" type="password" autocomplete="new-password">
+            <p><button id="go">Change password</button></p>
+            <div class="msg" id="msg"></div>
+            <p class="sub"><a href="index.html" id="back">Back to the console</a> &middot; <a href="#" id="logout">Log out</a></p>
+        </div>
+        <div class="card" id="reset">
+            <h2>Forgot your password?</h2>
+            <p class="sub">Ask an admin of your company for a one-time reset token, then enter it here.</p>
+            <label for="tok">Reset token</label>
+            <input id="tok" autocomplete="off">
+            <label for="rnew">New password</label>
+            <input id="rnew" type="password" autocomplete="new-password">
+            <p><button class="ghost" id="rgo">Reset password</button></p>
+            <div class="msg" id="rmsg"></div>
+        </div>
+    </div>
+    <script src="pm.js"></script>
+    <script>
+        const API = "http://localhost:8000";
+        const $ = id => document.getElementById(id);
+        const detail = d => typeof d.detail === "string" ? d.detail : "Please check what you entered";
+        const user = PM.user();
+        if (!user) $("change").style.display = "none";
+        else if (user.must_change_password) {
+            $("sub").textContent = "An admin gave you a temporary password. Choose your own before you continue.";
+            $("back").style.display = "none";
+        }
+        $("logout").onclick = e => { e.preventDefault(); PM.logout(); };
+
+        $("go").onclick = async () => {
+            $("msg").className = "msg err"; $("msg").textContent = "";
+            if ($("new1").value !== $("new2").value) { $("msg").textContent = "The two new passwords do not match"; return; }
+            $("go").disabled = true;
+            try {
+                const r = await fetch(`${API}/auth/change-password`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ current_password: $("cur").value, new_password: $("new1").value }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { $("msg").textContent = detail(d); return; }
+                await PM.refresh();
+                $("msg").className = "msg ok"; $("msg").textContent = "Password changed. Other sessions were signed out.";
+                setTimeout(() => location.replace("index.html"), 900);
+            } catch (e) { $("msg").textContent = "Cannot reach the server. Is the API running?"; }
+            finally { $("go").disabled = false; }
+        };
+
+        $("rgo").onclick = async () => {
+            $("rmsg").className = "msg err"; $("rmsg").textContent = "";
+            $("rgo").disabled = true;
+            try {
+                const r = await fetch(`${API}/auth/reset-password`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ token: $("tok").value.trim(), new_password: $("rnew").value }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { $("rmsg").textContent = detail(d); return; }
+                $("rmsg").className = "msg ok"; $("rmsg").textContent = "Password reset. You can log in now.";
+                setTimeout(() => location.replace("login.html"), 1200);
+            } catch (e) { $("rmsg").textContent = "Cannot reach the server. Is the API running?"; }
+            finally { $("rgo").disabled = false; }
+        };
+    </script>
+</body>
+
+</html>

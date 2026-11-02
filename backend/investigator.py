@@ -17,7 +17,7 @@ from backend.db import get_conn
 from backend.fraud import log_fraud_signals, run_fraud_signals
 from backend.tools import (
     _query, find_similar_invoices, find_similar_precedents, get_deliveries, get_po,
-    get_vendor_bank_history, search_vendors,
+    get_vendor_bank_history, search_vendors, company_of_invoice, tenant,
 )
 from backend.verdict import make_evidence, make_verdict
 import os
@@ -185,12 +185,18 @@ def tidy_reasons(decision, reasons, hard_reasons, fraud):
 
 
 def _investigate(invoice_id):
+    with tenant(company_of_invoice(invoice_id)):
+        return _investigate_scoped(invoice_id)
+
+
+def _investigate_scoped(invoice_id):
     """Returns {"verdict": {...}, "trail": [...], "steps": n}."""
     trail = []
     hard = fraud = None  # filled in as soon as the code layers have run, so a later AI error can still use them
     try:
         inv = _load_invoice(invoice_id)
-        vendor = _query("SELECT name FROM vendors WHERE id = %s", (inv["vendor_id"],))
+        vendor = _query("SELECT name FROM vendors WHERE id = %s AND company_id = %s",
+                        (inv["vendor_id"], inv["company_id"]))
         hard = run_hard_checks(invoice_id)
         fraud = run_fraud_signals(invoice_id, hard_failed=bool(hard["reasons"]))
 

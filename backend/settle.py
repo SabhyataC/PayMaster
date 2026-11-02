@@ -3,7 +3,7 @@ from decimal import Decimal
 import requests
 
 from backend.audit import log_decision
-from backend.paypal_client import BASE, get_token
+from backend.paypal_client import base_url, get_token
 
 # PayPal item status -> our payment status. Anything not listed is logged, not applied.
 ITEM_TO_PAYMENT_STATUS = {
@@ -17,10 +17,15 @@ ITEM_TO_PAYMENT_STATUS = {
 }
 
 
+STATUS_RANK = {"created": 0, "unknown": 0, "submitted": 1, "pending": 2, "unclaimed": 3,
+               "success": 4, "failed": 4, "returned": 5}
+FINAL_STATUSES = ("success", "failed", "returned")
+
+
 def fetch_batch(batch_id: str) -> dict:
     """Ask PayPal for the real state of a payout batch."""
     r = requests.get(
-        f"{BASE}/v1/payments/payouts/{batch_id}",
+        f"{base_url()}/v1/payments/payouts/{batch_id}",
         headers={"Authorization": f"Bearer {get_token()}"},
         timeout=30,
     )
@@ -30,7 +35,7 @@ def fetch_batch(batch_id: str) -> dict:
 def fetch_item(item_id: str) -> dict:
     """Ask PayPal for one payout item. Its details include the currency conversion, if any."""
     r = requests.get(
-        f"{BASE}/v1/payments/payouts-item/{item_id}",
+        f"{base_url()}/v1/payments/payouts-item/{item_id}",
         headers={"Authorization": f"Bearer {get_token()}"},
         timeout=30,
     )
@@ -145,7 +150,7 @@ def sync_payment(conn, batch_id: str) -> dict:
         conn.commit()
         return {"result": "unmapped_status", "item_status": item_status}
 
-    if status == "success" or status == new_status:
+    if status in FINAL_STATUSES or status == new_status or STATUS_RANK.get(new_status, 0) < STATUS_RANK.get(status, 0):
         conn.rollback()
         return {"result": "no_change", "payment_status": status}
 

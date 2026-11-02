@@ -229,6 +229,8 @@
                 <a href="index.html#payments">Payments &amp; ledger</a>
                 <a href="index.html#assistant">Ask &amp; Advise</a>
                 <a href="vendors.html" class="active">Vendors &amp; POs</a>
+                <a href="team.html" class="admin-only">Team &amp; settings</a>
+<a href="account.html">My account</a>
             </nav>
             <div class="foot"><button id="logout">Log out</button></div>
         </aside>
@@ -241,7 +243,7 @@
             </div>
             <section class="tab active" id="tab-vendors">
                 <h3>Vendors</h3>
-                <form id="vform">
+                <form id="vform" class="admin-only">
                     <input id="vname" placeholder="Name" required>
                     <input id="vcountry" placeholder="Country" size="10" required>
                     <input id="vemail" type="email" placeholder="Payout (PayPal) email" required>
@@ -263,7 +265,7 @@
 
             <section class="tab" id="tab-pos">
                 <h3>Purchase orders</h3>
-                <form id="pform">
+                <form id="pform" class="admin-only">
                     <select id="pvendor" required></select>
                     <input id="pnum" placeholder="PO number" size="10" required>
                     <input id="pamt" type="number" step="0.01" min="0.01" placeholder="Amount" required>
@@ -288,7 +290,7 @@
 
             <section class="tab" id="tab-deliveries">
                 <h3>Deliveries</h3>
-                <form id="dform">
+                <form id="dform" class="admin-only">
                     <select id="dpo" required></select>
                     <input id="ddesc" placeholder="What arrived" size="24" required>
                     <input id="damt" type="number" step="0.01" min="0.01" placeholder="Value" required>
@@ -310,13 +312,13 @@
         </main>
     </div>
 
+    <script src="pm.js"></script>
     <script>
         const API = "http://localhost:8000";
         const $ = id => document.getElementById(id);
-        const jwt = localStorage.getItem("pm_jwt");
         const user = JSON.parse(localStorage.getItem("pm_user") || "null");
-        function logout() { localStorage.removeItem("pm_jwt"); localStorage.removeItem("pm_user"); location.replace("login.html"); }
-        if (!jwt) location.replace("login.html");
+        function logout() { PM.logout(); }
+        if (!PM.signedIn()) location.replace("login.html");
         else if (user && !user.company_id) location.replace("company.html");
         $("logout").onclick = logout;
 
@@ -326,7 +328,7 @@
         async function call(path, method, body) {
             const r = await fetch(API + path, {
                 method: method || "GET",
-                headers: { "Authorization": "Bearer " + jwt, "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json" },
                 body: body ? JSON.stringify(body) : undefined,
             });
             if (r.status === 401) { logout(); throw new Error("Session expired"); }
@@ -344,14 +346,14 @@
         async function loadVendors() {
             vendors = (await call("/vendors")).items;
             $("vbody").innerHTML = vendors.map(v => `<tr><td>${esc(v.name)}</td><td>${esc(v.country)}</td><td>${esc(v.payout_email)}</td>
-            <td><button class="ghost" data-id="${esc(v.id)}">Change email</button></td></tr>`).join("");
+            <td class="admin-only"><button class="ghost" data-id="${esc(v.id)}">Change email</button></td></tr>`).join("");
             $("pvendor").innerHTML = vendors.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join("");
         }
         async function loadPOs() {
             const pos = (await call("/pos")).items;
             $("pbody").innerHTML = pos.map(p => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${money(p.amount, p.currency)}</td>
             <td>${money(p.delivered)}</td><td>${esc(p.status)}</td>
-            <td>${p.delivered < p.amount ? `<button class="ghost" data-po="${esc(p.id)}">Mark fully delivered</button>` : ""}</td></tr>`).join("");
+            <td class="admin-only">${p.delivered < p.amount ? `<button class="ghost" data-po="${esc(p.id)}">Mark fully delivered</button>` : ""}</td></tr>`).join("");
             $("dpo").innerHTML = pos.map(p => `<option value="${esc(p.id)}">${esc(p.po_number)} (${esc(p.vendor)})</option>`).join("");
         }
         async function loadDeliveries() {

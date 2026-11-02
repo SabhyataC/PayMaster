@@ -1,18 +1,18 @@
-"""Review endpoints. Every call needs the X-Review-Token header (REVIEW_TOKEN in .env).
-Without a token configured the endpoints refuse to work, because a tunnel to the webhook
-can expose this API to the internet."""
+"""Review endpoints. Every call needs a logged-in member of the company; deciding and paying need
+the reviewer or admin role."""
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, Header, HTTPException
-from backend.auth import current_member
+from backend.auth import current_member, reviewer_or_admin
 from backend.db import get_conn
 from backend.pay import pay_invoice
-from backend.review import ReviewError, decide, get_case, list_queue
+from backend.policy import check_policy
+from backend.review import ReviewError, assert_not_own_upload, decide, get_case, list_queue
 
 router = APIRouter(prefix="/review", tags=["review"])
 
-STATUS_FOR = {"not_found": 404, "already_decided": 409, "not_allowed": 409, "hard_reject": 409}
+STATUS_FOR = {"not_found": 404, "already_decided": 409, "not_allowed": 409, "hard_reject": 409,
+              "self_approval": 403, "payment_started": 409}
 
 
 class Decision(BaseModel):
@@ -47,17 +47,23 @@ def case(invoice_id: str, user: dict = Depends(current_member)):
         _fail(e)
 
 @router.post("/{invoice_id}/decision")
-def decision(invoice_id: str, body: Decision, user: dict = Depends(current_member)):
+def decision(invoice_id: str, body: Decision, user: dict = Depends(reviewer_or_admin)):
     try:
         with get_conn() as conn:
             _own(conn, invoice_id, user["company_id"])
-            return decide(conn, invoice_id, body.decision, user["full_name"], body.note, body.confirmed_with_vendor)
+            return decide(conn, invoice_id, body.decision, user["full_name"], body.note, body.confirmed_with_vendor,
+                          reviewer_id=user["id"])
     except ReviewError as e:
         _fail(e)
 
 @router.post("/{invoice_id}/pay")
-def release_payment(invoice_id: str, user: dict = Depends(current_member)):
+def release_payment(invoice_id: str, user: dict = Depends(reviewer_or_admin)):
     """Pay an approved invoice. The logged-in person releasing it is recorded as the approver."""
     with get_conn() as conn:
         _own(conn, invoice_id, user["company_id"])
+        if check_policy(conn, invoice_id)["outcome"] == "hold":
+            try:
+                assert_not_own_upload(conn, invoice_id, user["id"])
+            except ReviewError as e:
+                _fail(e)
         return pay_invoice(conn, invoice_id, approved_by=user["full_name"])

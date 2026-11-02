@@ -64,6 +64,21 @@ Copy-Item .env.example .env
 
 `.env` is gitignored. Never commit it.
 
+| Variable | Needed | Meaning |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string |
+| `JWT_SECRET` | yes | At least 32 random characters. The API refuses to log anyone in without it. Changing it logs everyone out |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | yes | Used by Intake, Verify, the explainer and chat |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_BASE_URL` | yes | PayPal sandbox app |
+| `PAYPAL_WEBHOOK_ID` | for webhooks | With no value every webhook is refused (503) |
+| `PAYPAL_ACCOUNT_EMAIL` | no | Shown read-only in the console |
+| `CONSOLE_ORIGINS` | yes when deployed | Comma-separated exact origins allowed by CORS. `*` is refused. Default is the local console |
+| `SIGNUP_ENABLED` | no | `false` closes public signup; admins then add people on the Team page |
+| `TRUST_PROXY` | no | `true` only behind a proxy you control, so login limits use the real client address |
+| `COOKIE_SAMESITE` | no | `lax` (default), `strict` or `none` (needs https) |
+
+If a real key or secret was ever pasted into a chat, a file or a commit, rotate it at its provider. Rotating cannot be done from code. A scan of the full git history found no secrets.
+
 ## Database
 
 Start Postgres in Docker (host port 5433), then create the tables:
@@ -93,18 +108,19 @@ Start the server (it serves the webhooks and the review API):
 uvicorn backend.webhooks:app --port 8000
 ```
 
-Every call needs the header `X-Review-Token` with the value from `.env`.
+Every call needs a logged-in member of the company. Deciding and paying need the reviewer or admin role; viewers can only read. The person who uploaded an invoice cannot approve or release it when another reviewer or admin exists.
 
 ```powershell
-$h = @{ "X-Review-Token" = "<your REVIEW_TOKEN>" }
+$login = Invoke-RestMethod -Method Post http://localhost:8000/auth/login -ContentType "application/json" -Body (@{email="you@example.com"; password="your password"} | ConvertTo-Json)
+$h = @{ Authorization = "Bearer $($login.token)" }
 # what needs a person
 Invoke-RestMethod http://localhost:8000/review/queue -Headers $h
 # one invoice with its evidence, fraud signals and history
 Invoke-RestMethod http://localhost:8000/review/<invoice_id> -Headers $h
 # approve or reject (a name and a note of at least 10 characters are required)
-Invoke-RestMethod -Method Post http://localhost:8000/review/<invoice_id>/decision -Headers $h -ContentType "application/json" -Body '{"decision":"approve","reviewer":"Your Name","note":"Called vendor, bank change confirmed"}'
+Invoke-RestMethod -Method Post http://localhost:8000/review/<invoice_id>/decision -Headers $h -ContentType "application/json" -Body '{"decision":"approve","note":"Called vendor, bank change confirmed","confirmed_with_vendor":true}'
 # send the payment; naming yourself here releases a policy hold such as a new payee
-Invoke-RestMethod -Method Post http://localhost:8000/review/<invoice_id>/pay -Headers $h -ContentType "application/json" -Body '{"reviewer":"Your Name"}'
+Invoke-RestMethod -Method Post http://localhost:8000/review/<invoice_id>/pay -Headers $h
 ```
 
 The queue has two kinds of item. `verify_hold` means Verify wants a person (decide with `/decision`). `policy_hold` means the invoice is already approved but the pay policy wants a person (release with `/pay`).
@@ -130,9 +146,9 @@ Results, what failed along the way and the limits of this test are in `docs/ai-r
 When Intake is not sure about a document (low confidence, unknown vendor, unknown PO, duplicate number) it is saved as `needs_review` and no invoice is created. A person fixes the fields:
 
 ```powershell
-(Invoke-RestMethod -Uri http://localhost:8000/extractions -Headers @{"X-Review-Token"=$tok}).items
-$body = @{reviewer="Sabhyata"; note="Vendor name had a typo, checked against the PO"; corrections=@{vendor_name="Bluefin Packaging"}} | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/extractions/<ID>/correct -Headers @{"X-Review-Token"=$tok;"Content-Type"="application/json"} -Body $body
+(Invoke-RestMethod -Uri http://localhost:8000/extractions -Headers $h).items
+$body = @{note="Vendor name had a typo, checked against the PO"; corrections=@{vendor_name="Bluefin Packaging"}} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/extractions/<ID>/correct -Headers $h -ContentType "application/json" -Body $body
 ```
 
 - Only `needs_review` extractions can be corrected (anything else returns 409). A reviewer name and a note of at least 10 characters are required.
@@ -144,11 +160,12 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/extractions/<ID>/corre
 
 Reconcile compares our payment records with PayPal and logs every difference as an **exception**. Payouts younger than 3 hours are ignored, because PayPal's Transaction Search can lag.
 
-Run it (the server is `uvicorn backend.webhooks:app --port 8000`; the token is `REVIEW_TOKEN` from `.env`):
+Run it (the server is `uvicorn backend.webhooks:app --port 8000`; reviewer or admin role, and it only looks at your own company's payments):
 
 ```powershell
-$tok = ((Select-String -Path .env -Pattern '^REVIEW_TOKEN=').Line -replace '^REVIEW_TOKEN=','') -replace '"',''
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/reconcile/run -Headers @{"X-Review-Token"=$tok}
+$login = Invoke-RestMethod -Method Post http://localhost:8000/auth/login -ContentType "application/json" -Body (@{email="you@example.com"; password="your password"} | ConvertTo-Json)
+$h = @{ Authorization = "Bearer $($login.token)" }
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/reconcile/run -Headers $h
 ```
 
 Running it twice in a row does not create duplicate exceptions. Each run writes an audit row.
@@ -167,6 +184,22 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 **AI explainer.** `POST /exceptions/{id}/explain` returns a plain-English explanation and one suggested action from a fixed list (`wait`, `cancel_unclaimed`, `contact_vendor`, `recheck_with_paypal`, `escalate`; anything else becomes `escalate`). The AI only explains and suggests: it never pays or cancels. If Gemini fails, a fixed template for the exception type is used. Scores and limits are in `docs/ai-results.md`.
 
 
+## Security and privacy
+
+- Every company's data is separate. Each table carries a required `company_id`, the database refuses a row that points at another company's vendor, purchase order, invoice or payment, and `company_id` can never be changed after a row exists. Every lookup the AI investigator can make is fixed by code to the invoice's own company; the AI cannot choose or change it.
+- Roles: viewer (read), reviewer (upload, decide, release payments, resolve exceptions), admin (also vendors, POs, people, settings). The person who uploaded an invoice cannot approve or release it when another reviewer or admin exists. A company always keeps one active admin.
+- Passwords are bcrypt hashed. Logins are limited per email and per address in the database, so a restart does not reset the limit. Logging out, changing a password, a reset or a role change ends every older session. There is no email service, so an admin creates a one-time reset token, shown once and valid for an hour.
+- Uploads are checked by content, not name: real PDF, PNG, JPG or UTF-8 text; at most 10 MB and 20 PDF pages; no scripts, launch actions or embedded files in PDFs; limited per person and per company.
+- The AI only reads. Anything inside an invoice, email, vendor name or reviewer note is treated as data. Code, never the AI, decides what may be paid: only hard checks can reject, only a named person can release a hold, and a hostile AI that approves everything still cannot get a bad invoice paid (`python -m scripts.eval --stub-ai`, `python tests/test_hardening.py`).
+- Privacy: this project is a demo on synthetic data. Documents you upload are sent to Google's Gemini API for reading, and are stored unencrypted in your Postgres database. Do not upload real personal or financial data unless you accept that. It is not certified or audited and makes no claim of compliance with PCI DSS, SOC 2, GDPR or any other standard.
+
+## Limits
+
+- Currencies: USD, GBP and EUR only. Amounts above the company's automatic payment limit (default 5000.00, set on the Team page) are always held for a person.
+- Quantity checks are not done; the PO total and what was delivered are compared by value.
+- One shared PayPal business account sends every company's payouts.
+- Extraction quality depends on the AI model; see `docs/ai-results.md`. If the AI is unavailable the invoice is held, never approved.
+
 ## Console
 
 A read-mostly web console for the review queue, invoices, payments and ledger, exceptions and the audit timeline. It is one static file (`console/index.html`, AG Grid from a CDN), no build step.
@@ -178,9 +211,9 @@ uvicorn backend.webhooks:app --port 8000        # terminal 1
 cd console; python -m http.server 5500          # terminal 2
 ```
 
-Open http://localhost:5500 and paste the `REVIEW_TOKEN` from `.env` into the token box.
+Open http://localhost:5500 and log in. The session is an HttpOnly cookie: page scripts never see it, and it is sent with an `X-CSRF` header on every change. Set `CONSOLE_ORIGINS` in `.env` to the exact origin(s) the console is served from; `*` is refused. Viewers do not see buttons they cannot use, and the server refuses those calls anyway. Admins manage people, roles and the automatic payment limit on the Team page; everyone can change their own password on the My account page.
 
-Read-only endpoints behind the console (same `X-Review-Token` header): `GET /invoices`, `GET /payments`, `GET /payments/{id}` (settlement, ledger rows and a balanced check), `GET /ledger`, `GET /audit/{invoice_id}` (full timeline; the invoice number also works), `GET /summary`.
+Read-only endpoints behind the console (any logged-in member of the company): `GET /invoices`, `GET /payments`, `GET /payments/{id}` (settlement, ledger rows and a balanced check), `GET /ledger`, `GET /audit/{invoice_id}` (full timeline; the invoice number also works), `GET /summary`.
 
 
 ## Webhooks

@@ -22,18 +22,20 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
     Try to pay one invoice. Safe to call any number of times.
     approved_by: name of the human releasing a 'hold'. A 'block' can never be released.
     """
-    # 0. only invoices the investigator approved may go near PayPal
-    row = conn.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+    # 0. only invoices the investigator approved may go near PayPal. The invoice row is locked
+    #    until the payment row exists, so a person cannot reject it in the middle of paying.
+    row = conn.execute("SELECT status FROM invoices WHERE id = %s FOR UPDATE", (invoice_id,)).fetchone()
     if row is None or row[0] not in ("approved", "paid"):
         current = row[0] if row else None
-        log_decision(
-            conn, stage="pay", entity_type="invoice", entity_id=invoice_id,
-            decision="refused", reason=f"Invoice status is '{current}', not 'approved'",
-            inputs={"invoice_status": current},
-        )
+        if row is not None:
+            log_decision(
+                conn, stage="pay", entity_type="invoice", entity_id=invoice_id,
+                decision="refused", reason=f"Invoice status is '{current}', not 'approved'",
+                inputs={"invoice_status": current},
+            )
         conn.commit()
         return {"status": "not_approved", "invoice_status": current}
-    
+
     # 1. policy check
     policy = check_policy(conn, invoice_id)
     outcome, reasons, inputs = policy["outcome"], policy["reasons"], policy["inputs"]
@@ -56,8 +58,6 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
         conn.commit()
         return {"status": "held", "reasons": reasons}
 
-
-
     # 2. reserve the payment row and save it before talking to PayPal
     inv = conn.execute(
         "SELECT amount, currency, destination_email FROM invoices WHERE id = %s",
@@ -71,7 +71,13 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
     )
     conn.commit()
 
-    # 3. already has an outcome: do not send again
+    # 3. take the payment row's lock. Of two simultaneous calls only one sees a sendable state;
+    #    the other waits here, then finds the outcome and does not send again.
+    locked = conn.execute(
+        "SELECT status FROM payments WHERE id = %s FOR UPDATE", (pay["payment_id"],)
+    ).fetchone()
+    pay["status"] = locked[0]
+
     if pay["status"] not in CAN_SEND:
         log_decision(
             conn, stage="pay", entity_type="payment", entity_id=pay["payment_id"],
@@ -83,7 +89,6 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
         return {"status": "already_exists", "payment_status": pay["status"],
                 "payment_id": pay["payment_id"]}
 
-
     if outcome == "hold":
         log_decision(
             conn, stage="pay", entity_type="invoice", entity_id=invoice_id,
@@ -91,6 +96,8 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
             reason=f"Held for {', '.join(reasons)}; released by {approved_by}",
             inputs=inputs, actor="human",
         )
+
+    # 4. call PayPal while holding the lock, then record the answer in the same transaction
     result = send_payout(
         key=pay["key"], email=email, amount=amount, currency=currency,
         note="Paymaster payment",

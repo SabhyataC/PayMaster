@@ -119,6 +119,7 @@
         <div class="demo">Demo: demo@paymaster.example.com / demo-password-123</div>
     </div>
 
+    <script src="pm.js"></script>
     <script>
         const API = "http://localhost:8000";   // use the same value as API in index.html
         const $ = id => document.getElementById(id);
@@ -155,7 +156,6 @@
                         ? data.detail : "Please check the fields and try again";
                     return;
                 }
-                localStorage.setItem("pm_jwt", data.token);
                 localStorage.setItem("pm_user", JSON.stringify(data.user));
                 goNext(data.user);
             } catch (e) {
@@ -166,10 +166,11 @@
         }
 
         function goNext(user) {
+            if (user && user.must_change_password) return location.replace("account.html");
             location.replace(user && user.company_id ? "index.html" : "company.html");
         }
 
-        if (localStorage.getItem("pm_jwt")) goNext(JSON.parse(localStorage.getItem("pm_user") || "null"));
+        if (PM.signedIn()) PM.refresh().then((u) => { if (u) goNext(u); });
 
         $("go").onclick = submit;
         document.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });

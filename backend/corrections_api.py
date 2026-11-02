@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
-from backend.auth import current_member
+from backend.auth import current_member, reviewer_or_admin
 
 from backend.corrections import CorrectionError, correct_extraction
 from backend.db import get_conn
@@ -31,7 +31,7 @@ def list_needs_review(user: dict = Depends(current_member)):
 
 
 @router.post("/{extraction_id}/correct")
-def correct(extraction_id: str, body: Correction, user: dict = Depends(current_member)):
+def correct(extraction_id: str, body: Correction, user: dict = Depends(reviewer_or_admin)):
     try:
         return correct_extraction(extraction_id, user["full_name"], body.note, body.corrections, user["company_id"])
     except CorrectionError as e:

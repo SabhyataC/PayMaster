@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: Team and settings</title>
+    <style>
+        body { margin: 0; min-height: 100vh; background: #f7f6f2; color: #1c1b18; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        .wrap { max-width: 880px; margin: 24px auto; padding: 0 16px; }
+        .card { background: #fff; border: 1px solid #e4e2da; border-radius: 12px; padding: 22px; margin-bottom: 18px; }
+        h1 { font-size: 1.4rem; margin: 0 0 4px; }
+        h2 { font-size: 1.05rem; margin: 0 0 10px; }
+        .sub { color: #6b6a63; margin: 0 0 14px; font-size: .9rem; }
+        label { display: block; font-size: .85rem; margin: 12px 0 4px; }
+        input, select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #cfcdc4; border-radius: 8px; font: inherit; }
+        button { padding: 8px 14px; border: 0; border-radius: 8px; background: #0b6b4f; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+        button.ghost { background: #fff; color: #0b6b4f; border: 1px solid #0b6b4f; }
+        button:disabled { opacity: .6; cursor: default; }
+        .msg { font-size: .9rem; margin-top: 10px; min-height: 1.2em; }
+        .err { color: #b4531a; }
+        .ok { color: #0b6b4f; }
+        a { color: #0b6b4f; }
+        table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+        th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eceae2; vertical-align: middle; }
+        td select { width: auto; padding: 5px 8px; }
+        .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
+        code { background: #f1efe8; padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <p><a href="index.html">&larr; Back to the console</a></p>
+        <div class="card">
+            <h1>Team</h1>
+            <p class="sub">Viewers can look. Reviewers can upload, decide and release payments. Admins also manage vendors, purchase orders and people. A company always keeps at least one active admin.</p>
+            <table>
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+                <tbody id="members"></tbody>
+            </table>
+            <div class="msg" id="tmsg"></div>
+            <div id="tokenbox"></div>
+        </div>
+        <div class="card">
+            <h2>Add a person</h2>
+            <p class="sub">They log in with the temporary password and must choose their own before they can do anything.</p>
+            <div class="row">
+                <div><label for="n_name">Full name</label><input id="n_name"></div>
+                <div><label for="n_email">Email</label><input id="n_email" type="email"></div>
+                <div><label for="n_role">Role</label>
+                    <select id="n_role"><option>viewer</option><option>reviewer</option><option>admin</option></select></div>
+                <div><label for="n_pw">Temporary password</label><input id="n_pw" type="password" autocomplete="new-password"></div>
+                <div><button id="add">Add person</button></div>
+            </div>
+            <div class="msg" id="amsg"></div>
+        </div>
+        <div class="card">
+            <h2>Automatic payment limit</h2>
+            <p class="sub">Invoices above this amount are always held for a person. Leave empty for the built-in default.</p>
+            <div class="row">
+                <div><label for="limit">Limit (per invoice)</label><input id="limit" inputmode="decimal"></div>
+                <div><button id="savelimit">Save limit</button></div>
+            </div>
+            <div class="msg" id="lmsg"></div>
+        </div>
+    </div>
+    <script src="pm.js"></script>
+    <script>
+        const API = "http://localhost:8000";
+        const $ = id => document.getElementById(id);
+        const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const detail = d => typeof d.detail === "string" ? d.detail : "Please check what you entered";
+        if (!PM.signedIn()) location.replace("login.html");
+        else if (!PM.isAdmin()) location.replace("index.html");
+
+        async function call(path, method, body) {
+            const r = await fetch(API + path, {
+                method: method || "GET", headers: { "Content-Type": "application/json" },
+                body: body ? JSON.stringify(body) : undefined,
+            });
+            const d = await r.json().catch(() => ({}));
+            if (r.status === 401) { PM.clear(); location.replace("login.html"); }
+            return { ok: r.ok, data: d };
+        }
+
+        async function load() {
+            const r = await call("/admin/users");
+            if (!r.ok) { $("tmsg").className = "msg err"; $("tmsg").textContent = detail(r.data); return; }
+            const me = PM.user() || {};
+            $("members").innerHTML = r.data.items.map(m => `<tr>
+                <td>${esc(m.full_name)}</td><td>${esc(m.email)}</td>
+                <td><select data-role="${esc(m.id)}">${["viewer", "reviewer", "admin"].map(x =>
+                    `<option${x === m.role ? " selected" : ""}>${x}</option>`).join("")}</select></td>
+                <td>${m.disabled ? "disabled" : "active"}</td>
+                <td><button class="ghost" data-toggle="${esc(m.id)}" data-off="${m.disabled ? "0" : "1"}">${m.disabled ? "Enable" : "Disable"}</button>
+                    <button class="ghost" data-reset="${esc(m.id)}">Reset password</button></td></tr>`).join("");
+        }
+
+        $("members").addEventListener("change", async e => {
+            const id = e.target.dataset.role;
+            if (!id) return;
+            const r = await call(`/admin/users/${id}`, "PATCH", { role: e.target.value });
+            $("tmsg").className = "msg " + (r.ok ? "ok" : "err");
+            $("tmsg").textContent = r.ok ? "Role changed. Their old sessions were ended." : detail(r.data);
+            load();
+        });
+        $("members").addEventListener("click", async e => {
+            const t = e.target;
+            if (t.dataset.toggle) {
+                const r = await call(`/admin/users/${t.dataset.toggle}`, "PATCH", { disabled: t.dataset.off === "1" });
+                $("tmsg").className = "msg " + (r.ok ? "ok" : "err");
+                $("tmsg").textContent = r.ok ? "Saved." : detail(r.data);
+                load();
+            } else if (t.dataset.reset) {
+                if (!confirm("Create a one-time reset token for this person?")) return;
+                const r = await call(`/admin/users/${t.dataset.reset}/reset-token`, "POST");
+                if (!r.ok) { $("tmsg").className = "msg err"; $("tmsg").textContent = detail(r.data); return; }
+                $("tokenbox").innerHTML = `<p class="sub">Give this token to the person yourself. It is shown once and works for ${esc(r.data.expires_in_minutes)} minutes. They enter it on the account page under "Forgot your password?".</p><p><code>${esc(r.data.token)}</code></p>`;
+            }
+        });
+
+        $("add").onclick = async () => {
+            const r = await call("/admin/users", "POST", {
+                full_name: $("n_name").value, email: $("n_email").value, role: $("n_role").value, temp_password: $("n_pw").value });
+            $("amsg").className = "msg " + (r.ok ? "ok" : "err");
+            $("amsg").textContent = r.ok ? "Person added." : detail(r.data);
+            if (r.ok) { $("n_name").value = $("n_email").value = $("n_pw").value = ""; load(); }
+        };
+
+        $("savelimit").onclick = async () => {
+            const r = await call("/admin/settings", "POST", { auto_pay_limit: $("limit").value.trim() });
+            $("lmsg").className = "msg " + (r.ok ? "ok" : "err");
+            $("lmsg").textContent = r.ok ? "Saved." : detail(r.data);
+        };
+
+        (async () => {
+            await load();
+            const s = await call("/admin/settings");
+            if (s.ok && s.data.auto_pay_limit) $("limit").value = s.data.auto_pay_limit;
+        })();
+    </script>
+</body>
+
+</html>

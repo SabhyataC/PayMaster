@@ -127,5 +127,7 @@ def explain_exception(conn, exception_id):
     log_decision(conn, stage="reconcile", entity_type=etype, entity_id=eid,
                  decision="exception_explained", reason=result["explanation"],
                  inputs={"exception_id": exception_id, "source": result["source"]},
-                 actor="ai" if result["source"] == "ai" else "system")
+                 actor="ai" if result["source"] == "ai" else "system",
+                 company_id=conn.execute("SELECT company_id FROM exceptions WHERE id = %s",
+                                         (exception_id,)).fetchone()[0])
     return result

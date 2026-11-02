@@ -2,7 +2,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.auth import current_member
+from backend.auth import current_member, admin_only
+from backend.audit import log_decision
 from backend.db import get_conn
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
@@ -39,7 +40,7 @@ def list_vendors(user: dict = Depends(current_member)):
 
 
 @router.post("")
-def add_vendor(body: VendorIn, user: dict = Depends(current_member)):
+def add_vendor(body: VendorIn, user: dict = Depends(admin_only)):
     with get_conn() as conn:
         dup = conn.execute(
             "SELECT 1 FROM vendors WHERE company_id = %s AND lower(name) = lower(%s)",
@@ -53,19 +54,23 @@ def add_vendor(body: VendorIn, user: dict = Depends(current_member)):
             (body.name.strip(), body.country.strip(), user["company_id"]),
         ).fetchone()[0]
         conn.execute(
-            "INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source) "
-            "VALUES (%s, %s, 'onboarding')",
-            (vid, body.payout_email.strip().lower()),
+            "INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source, company_id) "
+            "VALUES (%s, %s, 'onboarding', %s)",
+            (vid, body.payout_email.strip().lower(), user["company_id"]),
         )
+        log_decision(conn, stage="vendor", entity_type="vendor", entity_id=vid, decision="vendor_added",
+                     reason=f"{user['full_name']} added vendor {body.name.strip()}",
+                     inputs={"by": user["id"], "payout_email": body.payout_email.strip().lower()},
+                     actor="human")
         row = conn.execute(SELECT + " WHERE v.id = %s", (vid,)).fetchone()
     return _row(row)
 
 
 @router.post("/{vendor_id}")
-def edit_vendor(vendor_id: str, body: VendorEdit, user: dict = Depends(current_member)):
+def edit_vendor(vendor_id: str, body: VendorEdit, user: dict = Depends(admin_only)):
     with get_conn() as conn:
         v = conn.execute(
-            "SELECT 1 FROM vendors WHERE id = %s AND company_id = %s",
+            "SELECT 1 FROM vendors WHERE id::text = %s AND company_id = %s FOR UPDATE",
             (vendor_id, user["company_id"]),
         ).fetchone()
         if not v:
@@ -73,23 +78,29 @@ def edit_vendor(vendor_id: str, body: VendorEdit, user: dict = Depends(current_m
         if body.name is not None or body.country is not None:
             conn.execute(
                 "UPDATE vendors SET name = COALESCE(%s, name), country = COALESCE(%s, country) "
-                "WHERE id = %s",
+                "WHERE id::text = %s",
                 (body.name and body.name.strip(), body.country and body.country.strip(), vendor_id),
             )
         if body.payout_email is not None:
             new = body.payout_email.strip().lower()
             cur = conn.execute(
                 "SELECT destination_email FROM vendor_bank_history "
-                "WHERE vendor_id = %s AND valid_to IS NULL", (vendor_id,),
+                "WHERE vendor_id::text = %s AND valid_to IS NULL", (vendor_id,),
             ).fetchone()
             if not cur or cur[0].lower() != new:
                 conn.execute(
                     "UPDATE vendor_bank_history SET valid_to = now() "
-                    "WHERE vendor_id = %s AND valid_to IS NULL", (vendor_id,),
+                    "WHERE vendor_id::text = %s AND valid_to IS NULL", (vendor_id,),
                 )
                 conn.execute(
-                    "INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source) "
-                    "VALUES (%s, %s, 'manual_edit')", (vendor_id, new),
+                    "INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source, company_id) "
+                    "VALUES (%s, %s, 'manual_edit', %s)", (vendor_id, new, user["company_id"]),
                 )
-        row = conn.execute(SELECT + " WHERE v.id = %s", (vendor_id,)).fetchone()
+                log_decision(conn, stage="vendor", entity_type="vendor", entity_id=vendor_id,
+                             decision="payout_email_changed",
+                             reason=f"{user['full_name']} changed the payout email from "
+                                    f"{cur[0] if cur else 'none'} to {new}",
+                             inputs={"by": user["id"], "old": cur[0] if cur else None, "new": new},
+                             actor="human")
+        row = conn.execute(SELECT + " WHERE v.id::text = %s", (vendor_id,)).fetchone()
     return _row(row)

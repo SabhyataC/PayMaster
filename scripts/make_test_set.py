@@ -107,7 +107,7 @@ def mutate(name, kind):
 
 def new_vendor(conn, name, email=None):
     email = email or f"ap@{slug(name)}.example.com"
-    vendor_id = conn.execute("INSERT INTO vendors (name, country) VALUES (%s, 'US') RETURNING id", (name,)).fetchone()[0]
+    vendor_id = conn.execute("INSERT INTO vendors (name, country, company_id) VALUES (%s, 'US', (SELECT id FROM companies ORDER BY created_at LIMIT 1)) RETURNING id", (name,)).fetchone()[0]
     conn.execute("INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source) "
                  "VALUES (%s, %s, 'onboarding')", (vendor_id, email))
     return vendor_id, email
@@ -295,6 +295,8 @@ def main():
     with get_conn() as conn:
         conn.execute("TRUNCATE audit_log, ledger_entries, settlements, payments, extractions, invoices, "
                      "deliveries, purchase_orders, vendor_bank_history, vendors CASCADE")
+        conn.execute("INSERT INTO companies (name) SELECT 'Eval Company (SYNTHETIC)' "
+                     "WHERE NOT EXISTS (SELECT 1 FROM companies)")
         build(conn)
         check_names_are_distinct()  # before the commit: a failure leaves nothing half-built
         conn.commit()

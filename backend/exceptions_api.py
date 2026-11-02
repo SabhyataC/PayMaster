@@ -1,12 +1,12 @@
-"""Exception endpoints (Reconcile). Same X-Review-Token as the review API."""
-from fastapi import APIRouter, Header, HTTPException
+"""Exception endpoints (Reconcile). Every call is limited to the logged-in user's company."""
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.audit import log_decision
 from backend.db import get_conn
 from backend.explain import audit_target, explain_exception
 from fastapi import APIRouter, Depends, HTTPException
-from backend.auth import current_member
+from backend.auth import current_member, reviewer_or_admin
 
 router = APIRouter(prefix="/exceptions", tags=["exceptions"])
 
@@ -49,7 +49,7 @@ def get_exception(exception_id: int, user: dict = Depends(current_member)):
 
 
 @router.post("/{exception_id}/resolve")
-def resolve_exception(exception_id: int, body: Resolve, user: dict = Depends(current_member)):
+def resolve_exception(exception_id: int, body: Resolve, user: dict = Depends(reviewer_or_admin)):
     if not body.note.strip():
         raise HTTPException(422, "note is required")
     with get_conn() as conn:
@@ -71,14 +71,14 @@ def resolve_exception(exception_id: int, body: Resolve, user: dict = Depends(cur
         log_decision(
             conn, stage="reconcile", entity_type=etype, entity_id=eid,
             decision="exception_resolved",
-            reason=f"{r[1]} resolved by {user["full_name"]}: {body.note.strip()}",
-            inputs={"exception_id": exception_id}, actor="human",
+            reason=f"{r[1]} resolved by {user['full_name']}: {body.note.strip()}",
+            inputs={"exception_id": exception_id}, actor="human", company_id=user["company_id"],
         )
         conn.commit()
     return {"id": exception_id, "status": "resolved"}
 
 @router.post("/{exception_id}/explain")
-def explain(exception_id: int, user: dict = Depends(current_member)):
+def explain(exception_id: int, user: dict = Depends(reviewer_or_admin)):
     with get_conn() as conn:
         mine = conn.execute(
             "SELECT 1 FROM exceptions WHERE id = %s AND company_id = %s",
@@ -98,14 +98,14 @@ from backend.reconcile import run_reconcile
 run_router = APIRouter(prefix="/reconcile", tags=["reconcile"])
 
 @run_router.post("/run")
-def run_now(user: dict = Depends(current_member)):
+def run_now(user: dict = Depends(reviewer_or_admin)):
     """Check every payment against PayPal and log any new exceptions. Moves no money itself
     (the only automatic action is cancelling an unclaimed payout, as built on Nov 2)."""
     with get_conn() as conn:
-        counts = run_reconcile(conn)
+        counts = run_reconcile(conn, company_id=user["company_id"])
         log_decision(
             conn, stage="reconcile", entity_type="reconcile_run", entity_id=uuid.uuid4(),
             decision="ran", reason=f"Reconcile run: {sum(counts.values())} new exception(s)",
-            inputs={"new_exceptions": counts}, actor="system")
+            inputs={"new_exceptions": counts}, actor="system", company_id=user["company_id"])
         conn.commit()
     return {"new_exceptions": counts}

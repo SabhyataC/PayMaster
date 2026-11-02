@@ -25,6 +25,21 @@ class ReviewError(Exception):
         self.code, self.message = code, message
 
 
+def assert_not_own_upload(conn, invoice_id, user_id):
+    """Four eyes: the person who uploaded an invoice cannot also approve or release it, unless
+    nobody else in the company could (a one-person company)."""
+    if not user_id:
+        return
+    row = conn.execute("SELECT uploaded_by, company_id FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+    if row is None or row[0] is None or str(row[0]) != str(user_id):
+        return
+    other = conn.execute(
+        "SELECT 1 FROM users WHERE company_id = %s AND id <> %s AND disabled_at IS NULL "
+        "AND role IN ('admin', 'reviewer') LIMIT 1", (row[1], user_id)).fetchone()
+    if other:
+        raise ReviewError("self_approval", "You uploaded this invoice, so someone else must approve or release it")
+
+
 def _uuid(value):
     try:
         return uuid.UUID(str(value))
@@ -98,9 +113,10 @@ def get_case(conn, invoice_id):
                       left(note, 300)
                FROM precedents
                WHERE vendor_id = (SELECT vendor_id FROM invoices WHERE id = %s)
+                 AND company_id = (SELECT company_id FROM invoices WHERE id = %s)
                  AND signals = %s::text[] AND invoice_id <> %s
                ORDER BY reviewed_at DESC LIMIT 5""",
-            (invoice_id, signals, invoice_id)).fetchall()
+            (invoice_id, invoice_id, signals, invoice_id)).fetchall()
     ]
 
     return {
@@ -117,7 +133,7 @@ def get_case(conn, invoice_id):
     }
 
 
-def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=False):
+def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=False, reviewer_id=None):
     """Apply a human decision. Raises ReviewError (and changes nothing) when it is not allowed."""
     invoice_id = _uuid(invoice_id)
     reviewer, note = (reviewer or "").strip(), (note or "").strip()
@@ -126,22 +142,36 @@ def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=Fal
     if len(note) < MIN_NOTE:
         raise ReviewError("note_too_short", f"Write at least {MIN_NOTE} characters explaining why")
 
-    row = conn.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+    row = conn.execute("SELECT status FROM invoices WHERE id = %s FOR UPDATE", (invoice_id,)).fetchone()
     if row is None:
         raise ReviewError("not_found", "No such invoice")
     before = row[0]
     new_status = HUMAN_MOVES.get(before, {}).get(decision)
     if new_status is None:
+        conn.rollback()
         raise ReviewError("not_allowed", f"A person cannot '{decision}' an invoice that is '{before}'")
 
+    if decision == "reject" and conn.execute(
+            "SELECT 1 FROM payments WHERE invoice_id = %s AND status NOT IN ('failed', 'returned') LIMIT 1",
+            (invoice_id,)).fetchone():
+        conn.rollback()
+        raise ReviewError("payment_started", "A payment for this invoice already exists; handle it under Exceptions")
+
     if decision == "approve":
+        try:
+            assert_not_own_upload(conn, invoice_id, reviewer_id)
+        except ReviewError:
+            conn.rollback()
+            raise
         # A person may clear a hold (changed bank, amount off, a flagged email) but never override
         # a hard failure that says the invoice must not be paid: duplicate, no PO, other vendor's PO.
         hard = run_hard_checks(invoice_id)
         stuck = [r for r in hard["reasons"] if r in REJECT_REASONS]
         if stuck:
+            conn.rollback()
             raise ReviewError("hard_reject", "Cannot approve: " + ", ".join(stuck))
         if REASON_BANK_CHANGED in hard["reasons"] and confirmed_with_vendor is not True:
+            conn.rollback()
             raise ReviewError(
                 "confirmation_required",
                 "Bank details changed. Call the vendor on a number you already had, "

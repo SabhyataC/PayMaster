@@ -324,10 +324,12 @@ def route_row(extraction_id):
         else:
             invoice_id = conn.execute(
                 """INSERT INTO invoices
-                    (vendor_id, po_id, invoice_number, amount, currency, destination_email, status, company_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'received', %s) RETURNING id""",
+                    (vendor_id, po_id, invoice_number, amount, currency, destination_email, status, company_id,
+                     uploaded_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'received', %s,
+                            (SELECT uploaded_by FROM extractions WHERE id = %s)) RETURNING id""",
                 (vendor_id, po_id, fields["invoice_number"], fields["total"], fields["currency"],
-                 (fields.get("bank_details") or {}).get("payee_email"), company_id),
+                 (fields.get("bank_details") or {}).get("payee_email"), company_id, extraction_id),
             ).fetchone()[0]
             created = True
         conn.execute(
