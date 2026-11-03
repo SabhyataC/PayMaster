@@ -136,6 +136,8 @@ python -m scripts.make_test_set
 python -m scripts.eval --stub-ai        # code layers only, no Gemini needed
 python -m scripts.eval --sleep 15       # real Gemini (slow on the free tier)
 python -m scripts.eval --holdout        # hold-out set: once, at the very end
+python -m scripts.adversarial_eval --stub-ai   # 60 more unseen invoices (quantity, split billing, duplicate spellings...), code only
+python -m scripts.adversarial_eval --sleep 8 --out adv_real.csv   # same on the REAL model: publish these numbers
 ```
 
 Results, what failed along the way and the limits of this test are in `docs/ai-results.md`.
@@ -196,9 +198,15 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 ## Limits
 
 - Currencies: USD, GBP and EUR only. Amounts above the company's automatic payment limit (default 5000.00, set on the Team page) are always held for a person.
-- Quantity checks are not done; the PO total and what was delivered are compared by value.
+- Quantity: checked only when the PO and the invoice both state a quantity (the invoice quantity is the sum of its lines, and is used only if every line has one). It may not exceed what was received (or ordered, if no received quantity is recorded) minus what earlier invoices on the same PO already billed. If either side has no quantity the check says "not checked" and the amount checks still apply.
+- Tax is not stored, only the invoice total. Invoices are read in English only.
+- Seeding: `python -m backend.seed` erases every table. It refuses unless the database name contains `dev`, `demo`, `test` or `eval`, or you set `ALLOW_SEED=1` on purpose.
 - One shared PayPal business account sends every company's payouts.
 - Extraction quality depends on the AI model; see `docs/ai-results.md`. If the AI is unavailable the invoice is held, never approved.
+
+## When the AI is slow or down
+
+Every Gemini call waits 2 s and 5 s between tries, then switches to `GEMINI_FALLBACK_MODEL` (if set). If both fail the upload is marked failed (nothing is approved) and the Needs attention card shows a **Retry** button. A held invoice whose PO or delivery arrives later is re-checked automatically when that PO or delivery is saved, and has a **Re-verify** button. Re-verify runs the same full checks; it never pays.
 
 ## Console
 

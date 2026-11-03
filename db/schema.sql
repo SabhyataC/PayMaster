@@ -592,3 +592,10 @@ FROM reviews r
         ORDER BY a.id DESC
         LIMIT 1
     ) f ON true;
+
+
+-- B6: quantity. All three are optional: the quantity check runs only when the PO and the
+-- invoice both state one (see backend/checks.py). Deliveries without a quantity are not counted.
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (quantity IS NULL OR quantity > 0);
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (quantity IS NULL OR quantity > 0);
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (quantity IS NULL OR quantity > 0);

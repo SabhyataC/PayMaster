@@ -7,7 +7,6 @@ import json
 import os
 import re
 import time
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -65,20 +64,12 @@ def _result(ok, fields=None, conf=None, model=None, reason=None):
 
 
 def _call_model(contents):
-    model = os.environ["GEMINI_MODEL"]
+    from backend.ai_call import generate
     cfg = types.GenerateContentConfig(
         system_instruction=SYSTEM, response_mime_type="application/json", temperature=0
     )
-    for attempt in range(3):
-        try:
-            r = _get_client().models.generate_content(model=model, contents=contents, config=cfg)
-            return model, r.text
-        except Exception as e:  # free tier: wait and retry on rate limit / overload
-            msg = str(e)
-            if attempt < 2 and ("429" in msg or "RESOURCE_EXHAUSTED" in msg or "503" in msg):
-                time.sleep(20 * (attempt + 1))
-                continue
-            raise
+    model, r = generate(_get_client(), contents, cfg)
+    return model, r.text
 
 
 def _parse(text):
@@ -242,6 +233,16 @@ def extract_row(extraction_id):
     )
     return res
 
+def invoice_quantity(fields):
+    """Total units on the invoice, or None. Only trusted when EVERY line states a positive quantity;
+    a partly missing quantity would understate the total and let an over-bill pass."""
+    items = fields.get("line_items") or []
+    qs = [li.get("quantity") for li in items]
+    if not qs or any(not isinstance(q, (int, float)) or isinstance(q, bool) or q <= 0 for q in qs):
+        return None
+    return round(sum(qs), 3)
+
+
 def normalize_po(po):
     """'PO#1003', 'PO 1003', 'po-1003' and '1003' all become 'PO-1003'; None if no digits."""
     digits = re.sub(r"\D", "", po or "")
@@ -325,11 +326,12 @@ def route_row(extraction_id):
             invoice_id = conn.execute(
                 """INSERT INTO invoices
                     (vendor_id, po_id, invoice_number, amount, currency, destination_email, status, company_id,
-                     uploaded_by)
+                     uploaded_by, quantity)
                     VALUES (%s, %s, %s, %s, %s, %s, 'received', %s,
-                            (SELECT uploaded_by FROM extractions WHERE id = %s)) RETURNING id""",
+                            (SELECT uploaded_by FROM extractions WHERE id = %s), %s) RETURNING id""",
                 (vendor_id, po_id, fields["invoice_number"], fields["total"], fields["currency"],
-                 (fields.get("bank_details") or {}).get("payee_email"), company_id, extraction_id),
+                 (fields.get("bank_details") or {}).get("payee_email"), company_id, extraction_id,
+                 invoice_quantity(fields)),
             ).fetchone()[0]
             created = True
         conn.execute(

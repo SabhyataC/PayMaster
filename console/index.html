@@ -397,7 +397,7 @@
                 { field: "created_at", width: 200 },
                 { headerName: "Detail", valueGetter: (p) => JSON.stringify(p.data.detail), flex: 1 },
                 { headerName: "AI explanation", valueGetter: (p) => p.data.explanation ? p.data.explanation.explanation : "", flex: 2 },
-                { headerName: "Actions", width: 190, sortable: false, filter: false, cellRenderer: actionsCell },
+                { headerName: "Actions", width: 260, sortable: false, filter: false, cellRenderer: actionsCell },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
@@ -625,6 +625,20 @@
                 });
                 box.appendChild(b);
             }
+            if (PM.canAct() && p.data.status === "held") {   // B8: any held invoice can be checked again
+                const rv = document.createElement("button");
+                rv.textContent = "Re-verify"; rv.style.marginLeft = "6px";
+                rv.addEventListener("click", async () => {
+                    rv.disabled = true; rv.textContent = "Working...";
+                    try {
+                        const r = await fetch(`${API}/invoices/${encodeURIComponent(p.data.id)}/reverify`, { method: "POST" });
+                        const d = await r.json().catch(() => ({}));
+                        if (!r.ok) alert(d.detail || "Could not re-verify");
+                    } catch (err) { alert("Could not reach the server"); }
+                    loadInvoices(); loadAttention();
+                });
+                box.appendChild(rv);
+            }
             return box;
         }
 
@@ -637,10 +651,25 @@
                 { field: "status", width: 130, cellRenderer: badge },
                 { field: "fraud_risk", headerName: "Fraud risk", width: 120 },
                 { field: "received_at", headerName: "Received", flex: 1 },
-                { headerName: "Actions", width: 190, sortable: false, filter: false, cellRenderer: invoiceActions },
+                { headerName: "Actions", width: 260, sortable: false, filter: false, cellRenderer: invoiceActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
+        });
+
+        document.addEventListener("click", async ev => {
+            const b = ev.target.closest && ev.target.closest(".attn-act");
+            if (!b) return;
+            b.disabled = true; b.textContent = "Working...";
+            const url = b.dataset.act === "reverify"
+                ? `${API}/invoices/${encodeURIComponent(b.dataset.id)}/reverify`
+                : `${API}/extractions/${encodeURIComponent(b.dataset.id)}/retry`;
+            try {
+                const r = await fetch(url, { method: "POST" });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) alert(d.detail || "Could not do that");
+            } catch (err) { alert("Could not reach the server"); }
+            loadAttention(); if (typeof loadQueue === "function") loadQueue();
         });
 
         async function loadAttention() {
@@ -653,8 +682,8 @@
                 const sec = (title, rows, fmt) => rows.length
                     ? `<div style="margin:6px 0"><b>${title} (${rows.length})</b><ul style="margin:4px 0 0 18px;padding:0">${rows.map(x => `<li>${fmt(x)} <span style="color:#6b6a63">· ${x.days}d</span></li>`).join("")}</ul></div>` : "";
                 const html =
-                    sec("Waiting for a delivery to be recorded", d.waiting_delivery, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}, ${e(x.po)} delivered ${x.delivered}`) +
-                    sec("Documents waiting for a vendor or PO", d.needs_fix, x => `${e(x.file)}: ${e(x.reason)}`) +
+                    sec("Waiting for a delivery to be recorded", d.waiting_delivery, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}, ${e(x.po)} delivered ${x.delivered} <button class="attn-act" data-act="reverify" data-id="${e(x.id)}">Re-verify</button>`) +
+                    sec("Documents waiting for a vendor or PO", d.needs_fix, x => `${e(x.file)}: ${e(x.reason)} <button class="attn-act" data-act="retry" data-id="${e(x.id)}">Retry</button>`) +
                     sec("Approved, ready for a person to pay", d.ready_to_pay, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`) +
                     sec("Delivered, no invoice yet", d.delivered_no_invoice, x => `${e(x.po)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`);
                 box.innerHTML = `<b style="color:${d.total ? "#b4531a" : "#0b6b4f"}">Needs attention: ${d.total}</b>` + (html || `<div style="color:#6b6a63">Nothing is waiting.</div>`);
