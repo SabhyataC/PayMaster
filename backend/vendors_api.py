@@ -1,10 +1,11 @@
 """Vendors: list, add, edit. A payout email change is written to vendor_bank_history."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.auth import current_member, admin_only
 from backend.audit import log_decision
 from backend.db import get_conn
+from backend.reprocess import reprocess_vendor
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
 
@@ -67,7 +68,8 @@ def add_vendor(body: VendorIn, user: dict = Depends(admin_only)):
 
 
 @router.post("/{vendor_id}")
-def edit_vendor(vendor_id: str, body: VendorEdit, user: dict = Depends(admin_only)):
+def edit_vendor(vendor_id: str, body: VendorEdit, background: BackgroundTasks, user: dict = Depends(admin_only)):
+    email_changed = False
     with get_conn() as conn:
         v = conn.execute(
             "SELECT 1 FROM vendors WHERE id::text = %s AND company_id = %s FOR UPDATE",
@@ -88,6 +90,7 @@ def edit_vendor(vendor_id: str, body: VendorEdit, user: dict = Depends(admin_onl
                 "WHERE vendor_id::text = %s AND valid_to IS NULL", (vendor_id,),
             ).fetchone()
             if not cur or cur[0].lower() != new:
+                email_changed = True
                 conn.execute(
                     "UPDATE vendor_bank_history SET valid_to = now() "
                     "WHERE vendor_id::text = %s AND valid_to IS NULL", (vendor_id,),
@@ -103,4 +106,6 @@ def edit_vendor(vendor_id: str, body: VendorEdit, user: dict = Depends(admin_onl
                              inputs={"by": user["id"], "old": cur[0] if cur else None, "new": new},
                              actor="human")
         row = conn.execute(SELECT + " WHERE v.id::text = %s", (vendor_id,)).fetchone()
+    if email_changed:   # B8: held invoices of this vendor are checked again against the new email
+        background.add_task(reprocess_vendor, user["company_id"], vendor_id)
     return _row(row)

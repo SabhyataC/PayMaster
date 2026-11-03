@@ -270,6 +270,7 @@
                     <input id="pnum" placeholder="PO number" size="10" required>
                     <input id="pamt" type="number" step="0.01" min="0.01" placeholder="Amount" required>
                     <input id="pcur" value="USD" size="4" maxlength="3">
+                    <input id="pqty" type="number" step="0.001" min="0.001" placeholder="Quantity (optional)" size="12">
                     <button>Create PO</button>
                 </form>
                 <div class="msg" id="pmsg"></div>
@@ -279,6 +280,7 @@
                             <th>PO</th>
                             <th>Vendor</th>
                             <th>Amount</th>
+                            <th>Qty</th>
                             <th>Delivered</th>
                             <th>Status</th>
                             <th></th>
@@ -294,6 +296,7 @@
                     <select id="dpo" required></select>
                     <input id="ddesc" placeholder="What arrived" size="24" required>
                     <input id="damt" type="number" step="0.01" min="0.01" placeholder="Value" required>
+                    <input id="dqty" type="number" step="0.001" min="0.001" placeholder="Quantity (optional)" size="12">
                     <button>Record delivery</button>
                 </form>
                 <div class="msg" id="dmsg"></div>
@@ -303,6 +306,7 @@
                             <th>PO</th>
                             <th>Description</th>
                             <th>Value</th>
+                            <th>Qty</th>
                             <th>Received</th>
                         </tr>
                     </thead>
@@ -351,14 +355,14 @@
         }
         async function loadPOs() {
             const pos = (await call("/pos")).items;
-            $("pbody").innerHTML = pos.map(p => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${money(p.amount, p.currency)}</td>
+            $("pbody").innerHTML = pos.map(p => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${money(p.amount, p.currency)}</td><td>${p.quantity == null ? "" : esc(p.quantity)}</td>
             <td>${money(p.delivered)}</td><td>${esc(p.status)}</td>
             <td class="admin-only">${p.delivered < p.amount ? `<button class="ghost" data-po="${esc(p.id)}">Mark fully delivered</button>` : ""}</td></tr>`).join("");
             $("dpo").innerHTML = pos.map(p => `<option value="${esc(p.id)}">${esc(p.po_number)} (${esc(p.vendor)})</option>`).join("");
         }
         async function loadDeliveries() {
             const ds = (await call("/deliveries")).items;
-            $("dbody").innerHTML = ds.map(d => `<tr><td>${esc(d.po_number)}</td><td>${esc(d.description)}</td><td>${money(d.amount)}</td>
+            $("dbody").innerHTML = ds.map(d => `<tr><td>${esc(d.po_number)}</td><td>${esc(d.description)}</td><td>${money(d.amount)}</td><td>${d.quantity == null ? "" : esc(d.quantity)}</td>
             <td>${esc(d.received_at.slice(0, 10))}</td></tr>`).join("");
         }
         async function refresh() {
@@ -390,15 +394,15 @@
         $("pform").onsubmit = async e => {
             e.preventDefault(); $("pmsg").textContent = "";
             try {
-                await call("/pos", "POST", { vendor_id: $("pvendor").value, po_number: $("pnum").value, amount: $("pamt").value, currency: $("pcur").value });
-                $("pnum").value = ""; $("pamt").value = ""; done("pmsg", "PO created"); await refresh();
+                await call("/pos", "POST", { vendor_id: $("pvendor").value, po_number: $("pnum").value, amount: $("pamt").value, currency: $("pcur").value, quantity: $("pqty").value || null });
+                $("pnum").value = ""; $("pamt").value = ""; $("pqty").value = ""; done("pmsg", "PO created"); await refresh();
             } catch (err) { fail("pmsg", err); }
         };
         $("dform").onsubmit = async e => {
             e.preventDefault(); $("dmsg").textContent = "";
             try {
-                await call(`/pos/${$("dpo").value}/deliveries`, "POST", { description: $("ddesc").value, amount: $("damt").value });
-                $("ddesc").value = ""; $("damt").value = ""; done("dmsg", "Delivery recorded"); await refresh();
+                await call(`/pos/${$("dpo").value}/deliveries`, "POST", { description: $("ddesc").value, amount: $("damt").value, quantity: $("dqty").value || null });
+                $("ddesc").value = ""; $("damt").value = ""; $("dqty").value = ""; done("dmsg", "Delivery recorded"); await refresh();
             } catch (err) { fail("dmsg", err); }
         };
         refresh();

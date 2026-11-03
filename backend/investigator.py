@@ -92,19 +92,9 @@ TOOL_FUNCS = {
 
 
 def _generate(contents, cfg):
-    """Gemini call with the same free-tier retry as intake.py."""
-    model = os.environ["GEMINI_MODEL"]
-    for attempt in range(3):
-        try:
-            return _get_client().models.generate_content(model=model, contents=contents, config=cfg)
-        except Exception as e:
-            msg = str(e)
-            transient = ("429", "RESOURCE_EXHAUSTED", "503", "disconnected", "getaddrinfo", "timed out",
-                         "timeout", "Connection", "connect")
-            if attempt < 2 and any(t in msg for t in transient):
-                time.sleep(20 * (attempt + 1))
-                continue
-            raise
+    """Gemini call: short backoff, then the fallback model (see backend/ai_call.py)."""
+    from backend.ai_call import generate
+    return generate(_get_client(), contents, cfg)[1]
 
 
 def _run_tool(name, args):
@@ -321,15 +311,20 @@ ALLOWED_MOVES = {
 DECISION_TO_STATUS = {"approve": "approved", "hold": "held", "reject": "rejected"}
 
 
-def next_status(current, wanted):
+def next_status(current, wanted, allow_release=False):
     """The status Verify may set. Anything not listed in ALLOWED_MOVES keeps its status
-    (paid, rejected, needs_review...)."""
+    (paid, rejected, needs_review...). allow_release=True is used ONLY by Re-verify (B8): a held
+    invoice may become approved again, but only through the full hard checks, fraud gate and AI,
+    exactly like a first run. It never pays anything."""
     if current == wanted:
         return current
-    return wanted if wanted in ALLOWED_MOVES.get(current, set()) else current
+    moves = ALLOWED_MOVES.get(current, set())
+    if allow_release and current == "held":
+        moves = moves | {"approved"}
+    return wanted if wanted in moves else current
 
 
-def investigate(invoice_id):
+def investigate(invoice_id, allow_release=False):
     """Run the investigation, then save the full trail and the new status in one transaction."""
     result = _investigate(invoice_id)
     verdict = result["verdict"]
@@ -339,7 +334,7 @@ def investigate(invoice_id):
             "SELECT status FROM invoices WHERE id = %s FOR UPDATE", (invoice_id,)
         ).fetchone()
         before = row[0] if row else None
-        after = next_status(before, wanted)
+        after = next_status(before, wanted, allow_release)
         if (before == "approved" and after == "held" and conn.execute(
                 "SELECT 1 FROM audit_log WHERE entity_id = %s AND stage = 'review' AND decision = 'approved' LIMIT 1",
                 (invoice_id,)).fetchone()):

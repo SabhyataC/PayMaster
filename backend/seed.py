@@ -28,8 +28,21 @@ VENDORS = [
 ]
 
 
+def refuse_unless_dev():
+    """B3: this script empties EVERY table of EVERY company. It runs only on a database whose name
+    contains 'dev', 'demo', 'test' or 'eval', or when you set ALLOW_SEED=1 on purpose."""
+    import os
+    from backend.db import DATABASE_URL
+    name = DATABASE_URL.rsplit("/", 1)[-1].split("?")[0].lower()
+    if os.environ.get("ALLOW_SEED") == "1" or any(w in name for w in ("dev", "demo", "test", "eval")):
+        return
+    sys.exit(f"Refusing to wipe database '{name}': its name has no dev/demo/test/eval in it. "
+             "If you are sure this is a throw-away database, run again with ALLOW_SEED=1.")
+
+
 def wipe(conn):
     """DEV ONLY: empties every table so the seed can be re-run from scratch."""
+    refuse_unless_dev()
     conn.execute(
         "TRUNCATE audit_log, ledger_entries, settlements, payments, invoices, "
         "deliveries, purchase_orders, vendor_bank_history, vendors, users, companies CASCADE"
@@ -158,6 +171,7 @@ def seed_foreign_currency(conn, company_id, vendor_ids):
     return len(FOREIGN_PLAN)
 
 def main():
+    refuse_unless_dev()
     skip_invoices = "--no-invoices" in sys.argv  # intake creates the invoices from documents
     with get_conn() as conn:
         wipe(conn)

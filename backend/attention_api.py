@@ -1,7 +1,8 @@
 """'Needs attention': everything that is waiting for a person or for another record."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from backend.auth import current_member
+from backend.auth import current_member, reviewer_or_admin
+from backend.reprocess import retry_extraction, reverify_invoice
 from backend.db import get_conn
 
 router = APIRouter(tags=["attention"])
@@ -54,3 +55,24 @@ def attention(user: dict = Depends(current_member)):
     }
     out["total"] = sum(len(v) for v in out.values())
     return out
+
+@router.post("/invoices/{invoice_id}/reverify")
+def reverify(invoice_id: str, user: dict = Depends(reviewer_or_admin)):
+    """One click: run Verify again on a held invoice (e.g. its PO or delivery has arrived since)."""
+    try:
+        return reverify_invoice(invoice_id, user["company_id"])
+    except LookupError:
+        raise HTTPException(404, "Invoice not found")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/extractions/{extraction_id}/retry")
+def retry(extraction_id: str, user: dict = Depends(reviewer_or_admin)):
+    """One click: read an upload again (e.g. the AI service was overloaded the first time)."""
+    try:
+        return retry_extraction(extraction_id, user["company_id"])
+    except LookupError:
+        raise HTTPException(404, "Upload not found")
+    except ValueError as e:
+        raise HTTPException(409, str(e))

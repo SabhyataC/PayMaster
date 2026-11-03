@@ -1,7 +1,9 @@
 """Hard checks: plain code, no AI. They produce facts the agent cannot argue with.
 
-Quantity: the deliveries table has no quantity column, so quantity is not checked.
-Only amounts are compared.
+Quantity (B6): checked when the PO and the invoice both state a quantity. The invoice may not
+bill more units than were received (or ordered, if nothing states a received quantity) minus
+what earlier invoices on the same PO already billed. If either side has no quantity the check
+passes and says "not checked", so a missing number never blocks a payment by itself.
 """
 from datetime import datetime
 from decimal import Decimal
@@ -13,20 +15,21 @@ from backend.tools import (
 from backend.verdict import (
     REASON_ALL_PASSED, REASON_AMOUNT_OUT_OF_TOLERANCE, REASON_BANK_CHANGED,
     REASON_DELIVERY_NOT_RECEIVED, REASON_DUPLICATE, REASON_PO_MISSING,
-    REASON_PO_WRONG_VENDOR, make_evidence, make_verdict,
+    REASON_PO_WRONG_VENDOR, REASON_QUANTITY_OUT_OF_TOLERANCE, make_evidence, make_verdict,
 )
 
 AMOUNT_TOLERANCE = Decimal("0.02")  # placeholder: invoice may be 2% above what the PO/delivery allows
 
 # What each failed check leads to. Change these two sets if you disagree with my defaults.
 REJECT_REASONS = {REASON_PO_MISSING, REASON_PO_WRONG_VENDOR, REASON_DUPLICATE}
-HOLD_REASONS = {REASON_DELIVERY_NOT_RECEIVED, REASON_AMOUNT_OUT_OF_TOLERANCE, REASON_BANK_CHANGED}
+HOLD_REASONS = {REASON_DELIVERY_NOT_RECEIVED, REASON_AMOUNT_OUT_OF_TOLERANCE, REASON_QUANTITY_OUT_OF_TOLERANCE,
+                REASON_BANK_CHANGED}
 
 
 def _load_invoice(invoice_id):
     rows = _query(
         """SELECT i.id, i.company_id, i.vendor_id, i.invoice_number, i.amount, i.currency,
-                  i.destination_email, i.status, i.received_at, po.po_number
+                  i.destination_email, i.status, i.received_at, i.quantity, po.po_number
            FROM invoices i
            LEFT JOIN purchase_orders po ON po.id = i.po_id
            WHERE i.id = %s""",
@@ -89,7 +92,7 @@ def _run_hard_checks(inv):
         #    rejected invoices are skipped (they will never be paid).
         this_time = datetime.fromisoformat(inv["received_at"])
         others = _query(
-            """SELECT invoice_number, amount, received_at FROM invoices
+            """SELECT invoice_number, amount, quantity, received_at FROM invoices
                WHERE po_id = %s AND id <> %s AND status <> 'rejected' AND company_id = %s""",
             (po["id"], inv["id"], current_tenant()),
         )
@@ -124,6 +127,31 @@ def _run_hard_checks(inv):
                            "allowed_max": f"{allowed:.2f}", "tolerance": str(AMOUNT_TOLERANCE)}),
             REASON_AMOUNT_OUT_OF_TOLERANCE,
         )
+
+        # 4b. Quantity (only when both sides state one)
+        inv_q = Decimal(inv["quantity"]) if inv.get("quantity") is not None else None
+        po_q = Decimal(po["quantity"]) if po.get("quantity") is not None else None
+        if inv_q is None or po_q is None:
+            record(make_evidence("quantity_within_ordered", True,
+                                 "Quantity not checked: the " + ("invoice" if inv_q is None else "PO")
+                                 + " states no quantity", {"checked": False}),
+                   REASON_QUANTITY_OUT_OF_TOLERANCE)
+        else:
+            rec_q = Decimal(deliv["total_quantity"]) if deliv.get("total_quantity") is not None else None
+            cap = min(po_q, rec_q) if rec_q is not None else po_q
+            billed_q = sum((Decimal(o["quantity"]) for o in earlier if o.get("quantity") is not None),
+                           Decimal("0"))
+            q_allowed = cap - billed_q
+            q_ok = inv_q <= q_allowed
+            record(make_evidence("quantity_within_ordered", q_ok,
+                                 f"Invoice quantity {inv_q} fits within the {q_allowed} still open" if q_ok
+                                 else f"Invoice bills {inv_q} units but only {q_allowed} are open "
+                                      f"(ordered {po_q}, received {rec_q if rec_q is not None else 'not stated'}, "
+                                      f"already billed {billed_q})",
+                                 {"checked": True, "invoice_quantity": str(inv_q), "po_quantity": str(po_q),
+                                  "received_quantity": None if rec_q is None else str(rec_q),
+                                  "already_billed": str(billed_q), "allowed_max": str(q_allowed)}),
+                   REASON_QUANTITY_OUT_OF_TOLERANCE)
     # 5. Duplicate: same normalized number from the same vendor that arrived EARLIER
     #    (or is already approved/paid). Without the "earlier" rule the original would be
     #    flagged as a duplicate of its own copy.

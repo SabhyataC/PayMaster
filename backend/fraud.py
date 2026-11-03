@@ -102,20 +102,11 @@ def _ask_json(prompt):
     from google.genai import types
     from backend.intake import _get_client
 
-    model = os.environ["GEMINI_MODEL"]
+    from backend.ai_call import generate
     cfg = types.GenerateContentConfig(
         system_instruction=AI_SYSTEM, temperature=0, response_mime_type="application/json",
     )
-    for attempt in range(3):
-        try:
-            resp = _get_client().models.generate_content(model=model, contents=prompt, config=cfg)
-            break
-        except Exception as e:  # free tier: wait and retry on rate limit / overload
-            msg = str(e)
-            if attempt < 2 and ("429" in msg or "RESOURCE_EXHAUSTED" in msg or "503" in msg):
-                time.sleep(20 * (attempt + 1))
-                continue
-            raise
+    _, resp = generate(_get_client(), prompt, cfg)
     text = (resp.text or "").strip()
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:

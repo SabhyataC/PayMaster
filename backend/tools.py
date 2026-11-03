@@ -101,7 +101,7 @@ def get_po(po_number):
     """Return the purchase order (with its vendor), or None if it does not exist."""
     rows = _query(
         """SELECT po.id, po.po_number, po.vendor_id, v.name AS vendor_name,
-                  po.amount, po.currency, po.status
+                  po.amount, po.currency, po.status, po.quantity
            FROM purchase_orders po
            JOIN vendors v ON v.id = po.vendor_id
            WHERE po.po_number = %s AND po.company_id = %s AND v.company_id = po.company_id""",
@@ -113,7 +113,7 @@ def get_po(po_number):
 def get_deliveries(po_number):
     """Return everything delivered against a PO, plus the total value delivered."""
     rows = _query(
-        """SELECT d.id, d.description, d.amount, d.received_at
+        """SELECT d.id, d.description, d.amount, d.quantity, d.received_at
            FROM deliveries d
            JOIN purchase_orders po ON po.id = d.po_id
            WHERE po.po_number = %s AND po.company_id = %s AND d.company_id = po.company_id
@@ -121,10 +121,12 @@ def get_deliveries(po_number):
         (normalize_po_number(po_number), current_tenant()),
     )
     total = sum((Decimal(r["amount"]) for r in rows), Decimal("0"))
+    qtys = [Decimal(r["quantity"]) for r in rows if r.get("quantity") is not None]
     return {
         "po_number": normalize_po_number(po_number),
         "count": len(rows),
         "total_delivered": str(total),
+        "total_quantity": str(sum(qtys, Decimal("0"))) if qtys else None,  # None = no delivery states a quantity
         "deliveries": rows,
     }
 
