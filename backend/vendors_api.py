@@ -1,7 +1,7 @@
 """Vendors: list, add, edit. A payout email change is written to vendor_bank_history."""
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
-
+from backend.changes import request_vendor_email
 from backend.auth import current_member, admin_only
 from backend.audit import log_decision
 from backend.db import get_conn
@@ -70,6 +70,7 @@ def add_vendor(body: VendorIn, user: dict = Depends(admin_only)):
 @router.post("/{vendor_id}")
 def edit_vendor(vendor_id: str, body: VendorEdit, background: BackgroundTasks, user: dict = Depends(admin_only)):
     email_changed = False
+    email_requested = False
     with get_conn() as conn:
         v = conn.execute(
             "SELECT 1 FROM vendors WHERE id::text = %s AND company_id = %s FOR UPDATE",
@@ -84,28 +85,15 @@ def edit_vendor(vendor_id: str, body: VendorEdit, background: BackgroundTasks, u
                 (body.name and body.name.strip(), body.country and body.country.strip(), vendor_id),
             )
         if body.payout_email is not None:
-            new = body.payout_email.strip().lower()
-            cur = conn.execute(
-                "SELECT destination_email FROM vendor_bank_history "
-                "WHERE vendor_id::text = %s AND valid_to IS NULL", (vendor_id,),
-            ).fetchone()
-            if not cur or cur[0].lower() != new:
-                email_changed = True
-                conn.execute(
-                    "UPDATE vendor_bank_history SET valid_to = now() "
-                    "WHERE vendor_id::text = %s AND valid_to IS NULL", (vendor_id,),
-                )
-                conn.execute(
-                    "INSERT INTO vendor_bank_history (vendor_id, destination_email, change_source, company_id) "
-                    "VALUES (%s, %s, 'manual_edit', %s)", (vendor_id, new, user["company_id"]),
-                )
-                log_decision(conn, stage="vendor", entity_type="vendor", entity_id=vendor_id,
-                             decision="payout_email_changed",
-                             reason=f"{user['full_name']} changed the payout email from "
-                                    f"{cur[0] if cur else 'none'} to {new}",
-                             inputs={"by": user["id"], "old": cur[0] if cur else None, "new": new},
-                             actor="human")
+            result = request_vendor_email(conn, user, vendor_id, body.payout_email)
+            if result == "applied":
+                email_changed = True        # held invoices get re-checked, as before
+            elif result:
+                email_requested = True
         row = conn.execute(SELECT + " WHERE v.id::text = %s", (vendor_id,)).fetchone()
     if email_changed:   # B8: held invoices of this vendor are checked again against the new email
         background.add_task(reprocess_vendor, user["company_id"], vendor_id)
-    return _row(row)
+    out = _row(row)
+    if email_requested:
+        out["email_change"] = "waiting for a second admin to approve"
+    return out

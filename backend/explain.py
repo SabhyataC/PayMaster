@@ -20,6 +20,8 @@ DEFAULT_ACTION = {
     "success_mismatch": "recheck_with_paypal",
     "amount_mismatch": "recheck_with_paypal",
     "unknown_payout": "escalate",
+    "payment_failed": "escalate",
+    "created_too_long": "recheck_with_paypal",
 }
 SYSTEM = (
     "You explain payment reconciliation problems to a finance clerk who is new to "
@@ -33,12 +35,14 @@ SYSTEM = (
     "Choose suggested_action from exception_type: "
     "pending_too_long -> wait if the payment is still pending, otherwise recheck_with_paypal; "
     "unclaimed_too_long -> contact_vendor (ask them to confirm their PayPal email); "
-    "unknown_outcome, success_mismatch, amount_mismatch -> recheck_with_paypal; "
-    "unknown_payout (PayPal shows a payout we have no payment record for) -> escalate. "
+    "unknown_outcome, success_mismatch, amount_mismatch, created_too_long -> recheck_with_paypal; "
+    "unknown_payout (PayPal shows a payout we have no payment record for) -> escalate; "
+    "payment_failed (PayPal refused it, no money moved) -> escalate. "
     "In the first sentence say which problem was flagged (the exception_type in plain words) "
     "and what is missing or different. "
     "You only explain and suggest. You never pay or cancel. "
     "Never suggest paying again or editing records."
+    
 )
 
 TEMPLATES = {
@@ -54,6 +58,10 @@ TEMPLATES = {
                         "Compare both amounts and the fee/FX details in PayPal."),
     "unknown_payout": ("PayPal shows a payout that we have no payment record for.",
                        "Find out who sent it from the PayPal dashboard."),
+    "payment_failed": ("PayPal refused this payment, so no money moved.",
+                       "Read the PayPal error, fix the cause (funds, email), then retry from the Review queue."),
+    "created_too_long": ("We saved this payment but never sent it to PayPal, or never heard back.",
+                         "Check PayPal for this payment's batch. If it is not there, click Pay again; the same key is reused, so it cannot pay twice."),
 }
 
 

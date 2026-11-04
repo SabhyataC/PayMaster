@@ -8,7 +8,7 @@ import uuid
 from backend.audit import log_decision
 from backend.checks import REJECT_REASONS, run_hard_checks
 from backend.verdict import REASON_BANK_CHANGED
-from backend.policy import check_policy
+from backend.policy import check_policy, payout_email
 
 # What a person may do to an invoice, by its current status.
 HUMAN_MOVES = {
@@ -26,17 +26,11 @@ class ReviewError(Exception):
 
 
 def assert_not_own_upload(conn, invoice_id, user_id):
-    """Four eyes: the person who uploaded an invoice cannot also approve or release it, unless
-    nobody else in the company could (a one-person company)."""
+    """Four eyes: the person who uploaded an invoice can never approve or release it."""
     if not user_id:
         return
-    row = conn.execute("SELECT uploaded_by, company_id FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
-    if row is None or row[0] is None or str(row[0]) != str(user_id):
-        return
-    other = conn.execute(
-        "SELECT 1 FROM users WHERE company_id = %s AND id <> %s AND disabled_at IS NULL "
-        "AND role IN ('admin', 'reviewer') LIMIT 1", (row[1], user_id)).fetchone()
-    if other:
+    row = conn.execute("SELECT uploaded_by FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+    if row is not None and row[0] is not None and str(row[0]) == str(user_id):
         raise ReviewError("self_approval", "You uploaded this invoice, so someone else must approve or release it")
 
 
@@ -64,7 +58,9 @@ def list_queue(conn, company_id):
            FROM invoices i JOIN vendors v ON v.id = i.vendor_id
             WHERE i.company_id = %s
              AND i.status IN ('held', 'approved')
-             AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id)
+             AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id
+                             AND p.status <> 'failed'
+                             AND NOT (p.status = 'created' AND p.updated_at < now() - interval '15 minutes'))
            ORDER BY i.received_at""", (company_id,)).fetchall()
     queue = []
     for inv_id, number, vendor, amount, currency, status, received in rows:
@@ -73,10 +69,27 @@ def list_queue(conn, company_id):
             reasons = ((v or {}).get("inputs") or {}).get("verdict", {}).get("reasons", [])
             stage = "verify_hold"
         else:
-            policy = check_policy(conn, inv_id)
-            if policy["outcome"] != "hold":
-                continue          # approved and free to pay: nobody needs to look
-            reasons, stage = policy["reasons"], "policy_hold"
+            failed = conn.execute(
+                "SELECT 1 FROM payments WHERE invoice_id = %s AND status = 'failed' LIMIT 1",
+                (inv_id,)).fetchone()
+            stuck = conn.execute(
+                "SELECT 1 FROM payments WHERE invoice_id = %s AND status = 'created' LIMIT 1",
+                (inv_id,)).fetchone()
+            if stuck:
+                reasons, stage = ["payment_not_sent"], "payment_stuck"
+            elif failed:
+                err = conn.execute(
+                    """SELECT e.detail->>'paypal_error' FROM exceptions e
+                       JOIN payments p ON p.id = e.payment_id
+                       WHERE p.invoice_id = %s AND e.type = 'payment_failed'
+                       ORDER BY e.id DESC LIMIT 1""", (inv_id,)).fetchone()
+                reasons = ["payment_failed" + (f": {err[0]}" if err and err[0] else "")]
+                stage = "payment_failed"
+            else:
+                policy = check_policy(conn, inv_id)
+                if policy["outcome"] != "hold":
+                    continue          # approved and free to pay: nobody needs to look
+                reasons, stage = policy["reasons"], "policy_hold"
         queue.append({"invoice_id": str(inv_id), "invoice_number": number, "vendor": vendor,
                       "amount": str(amount), "currency": currency, "status": status,
                       "stage": stage, "reasons": reasons, "received_at": received.isoformat()})
@@ -121,7 +134,8 @@ def get_case(conn, invoice_id):
 
     return {
         "invoice": {"id": str(row[0]), "invoice_number": row[1], "vendor": row[2], "amount": str(row[3]),
-                    "currency": row[4], "destination_email": row[5], "status": row[6],
+                    "currency": row[4], "destination_email": payout_email(conn, invoice_id),
+                    "invoice_email": row[5], "status": row[6],
                     "received_at": row[7].isoformat(), "has_po": row[8] is not None},
         "verify": {"decision": verdict.get("decision"), "reasons": verdict.get("reasons", []),
                    "evidence": verdict.get("evidence", []), "confidence": verdict.get("confidence")},

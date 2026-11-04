@@ -52,6 +52,8 @@ def burn_password_check(password: str) -> None:
 def validate_new_password(password: str, email: str = "") -> None:
     if not 10 <= len(password) <= 72:
         raise HTTPException(422, "Password must be 10 to 72 characters")
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(422, "Password is too long (accented or non-English characters count as more than one)")
     if len(set(password)) < 5:
         raise HTTPException(422, "Password is too simple")
     local = email.split("@")[0].lower() if email else ""

@@ -31,7 +31,8 @@ def attention(user: dict = Depends(current_member)):
             """SELECT i.id, i.invoice_number, v.name, i.amount, i.currency,
                       EXTRACT(DAY FROM now() - i.received_at)::int
                FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-               WHERE i.company_id = %s AND i.status = 'approved'
+                HERE i.company_id = %s AND i.status = 'approved'
+                 AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id AND p.status = 'failed')
                ORDER BY i.received_at""", (cid,)).fetchall()
 
         no_invoice = conn.execute(

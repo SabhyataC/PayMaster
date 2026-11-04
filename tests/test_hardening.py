@@ -104,6 +104,8 @@ def mk_invoice(company_id, vendor_id, po_id, status="held", amount="100.00", upl
         (vendor_id, po_id, uniq("INV"), amount, email, status, company_id, uploaded_by))[0]
 
 
+
+
 def world():
     cid = mk_company()
     users = {r: mk_user(cid, r) for r in ("admin", "reviewer", "viewer")}
@@ -114,6 +116,20 @@ def world():
 
 client = TestClient(webhooks.app)
 
+
+def test_a1_pays_to_email_on_file():
+    section("A1  payout goes to the vendor's email on file")
+    from backend.policy import check_policy, payout_email
+    w = world()
+    inv = mk_invoice(w["cid"], w["vid"], w["po_id"], status="approved", email="attacker@example.com")
+    on_file = one("SELECT destination_email FROM vendor_bank_history WHERE vendor_id = %s AND valid_to IS NULL", (w["vid"],))[0]
+    with get_conn() as conn:
+        check("payout email is the one on file, not the invoice's", payout_email(conn, inv) == on_file)
+    inv2 = mk_invoice(w["cid"], w["vid"], w["po_id"], status="approved")
+    run("UPDATE invoices SET destination_email = NULL WHERE id = %s", (inv2,))
+    with get_conn() as conn:
+        pol = check_policy(conn, inv2)
+    check("an invoice with no printed email is no longer blocked", "no_destination_email" not in pol["reasons"], pol)
 
 def section(title):
     print(f"\n=== {title}")
@@ -212,7 +228,9 @@ def test_s1_s3_tool_scoping():
                      "status, company_id) VALUES (%s, %s, %s, 100, 'USD', 1, 'success', %s)",
                      (paid_in_b, uniq("k"), vb_email, b["cid"]))
         conn.commit()
-        inv_a2 = mk_invoice(a["cid"], a["vid"], a["po_id"], status="approved", email=vb_email)
+        va2 = mk_vendor(a["cid"], email=vb_email)
+        po_a2, _ = mk_po(a["cid"], va2)
+        inv_a2 = mk_invoice(a["cid"], va2, po_a2, status="approved")
         pol = check_policy(conn, inv_a2)
     check("a payee paid by company B is still a NEW payee for company A", "new_payee" in pol["reasons"], pol)
 
@@ -269,7 +287,7 @@ def test_s5_roles_and_four_eyes():
     sp, _ = mk_po(solo, sv)
     sinv = mk_invoice(solo, sv, sp, status="held", uploaded_by=solo_admin)
     r = api("POST", f"/review/{sinv}/decision", solo_admin, json=body)
-    check("a one-person company is not locked out of its own invoices", r.status_code == 200, r.text)
+    check("even a one-person company cannot approve its own upload", r.status_code == 403, r.text)
 
     held2 = mk_invoice(w["cid"], w["vid"], w["po_id"], status="approved", amount="9000.00", uploaded_by=reviewer)
     r = api("POST", f"/review/{held2}/pay", reviewer)
@@ -309,6 +327,7 @@ def test_s5_roles_and_four_eyes():
 
 def test_s6_sessions_and_login():
     section("S6  login, sessions, limits, reset")
+    os.environ["SIGNUP_ENABLED"] = "true"
     cid = mk_company()
     uid, email = mk_user(cid, "admin")
     admin2, _ = mk_user(cid, "admin")
@@ -361,7 +380,7 @@ def test_s6_sessions_and_login():
     os.environ["SIGNUP_ENABLED"] = "false"
     check("signup can be closed", client.post("/auth/signup", json={"full_name": "A B", "email": uniq("s") + "@example.com",
                                                                     "password": "a long good pass 42"}).status_code == 403)
-    del os.environ["SIGNUP_ENABLED"]
+    os.environ["SIGNUP_ENABLED"] = "true"
     run("DELETE FROM login_attempts")
     ip_codes = [client.post("/auth/signup", json={"full_name": "A B", "email": uniq("z") + "@example.com",
                                                   "password": "a long good pass 42"}).status_code for _ in range(12)]
@@ -773,11 +792,158 @@ def test_s11_cors():
     r = client.options("/review/queue", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
     check("an unknown origin gets no CORS permission", "access-control-allow-origin" not in {k.lower() for k in r.headers})
 
+def test_a4_failed_payment():
+    section("A4  failed payment is visible and can be retried")
+    import backend.pay as pay
+    from backend.reconcile import detect_failed
+    real = pay.send_payout
+    w = world()
+    inv = mk_invoice(w["cid"], w["vid"], w["po_id"], status="approved")
+
+    pay.send_payout = lambda **kw: {"result": "rejected", "http_status": 422,
+                                    "error": {"name": "INSUFFICIENT_FUNDS"}}
+    with get_conn() as conn:
+        r = pay.pay_invoice(conn, inv, approved_by="Person A")
+    check("a refused payment is 'failed'", r["status"] == "failed", r)
+    exc = one("SELECT detail->>'paypal_error' FROM exceptions e JOIN payments p ON p.id = e.payment_id "
+              "WHERE p.invoice_id = %s AND e.type = 'payment_failed' AND e.status = 'open'", (inv,))
+    check("a payment_failed exception is opened with PayPal's error name",
+          exc is not None and exc[0] == "INSUFFICIENT_FUNDS", exc)
+    with get_conn() as conn:
+        q = [i for i in review.list_queue(conn, w["cid"]) if i["invoice_id"] == str(inv)]
+    check("the failed invoice shows in the review queue with the reason",
+          len(q) == 1 and q[0]["reasons"] == ["payment_failed: INSUFFICIENT_FUNDS"], q)
+
+    pay.send_payout = lambda **kw: {"result": "submitted", "paypal_batch_id": "FAKE-RETRY"}
+    with get_conn() as conn:
+        r2 = pay.pay_invoice(conn, inv, approved_by="Person A")
+    check("a person can retry it (attempt 2)", r2["status"] == "submitted", r2)
+    check("the automatic path never retries a failed payment",
+          one("SELECT count(*) FROM payments WHERE invoice_id = %s", (inv,))[0] == 2)
+
+    with get_conn() as conn:
+        detect_failed(conn, w["cid"])
+        conn.commit()
+    still_open = one("SELECT count(*) FROM exceptions e JOIN payments p ON p.id = e.payment_id "
+                     "WHERE p.invoice_id = %s AND e.type = 'payment_failed' AND e.status = 'open'", (inv,))[0]
+    check("the exception closes once the payment is retried", still_open == 0, still_open)
+    pay.send_payout = real
+
+
+def test_a5_stuck_created():
+    section("A5  a payment stuck in 'created' is found and can be re-sent")
+    import backend.pay as pay
+    from backend.idempotency import reserve_payment
+    from backend.policy import payout_email
+    from backend.reconcile import detect_stuck
+    real = pay.send_payout
+    w = world()
+    inv = mk_invoice(w["cid"], w["vid"], w["po_id"], status="approved")
+    amount = one("SELECT amount FROM invoices WHERE id = %s", (inv,))[0]
+    with get_conn() as conn:
+        reserve_payment(conn, invoice_id=inv, destination_email=payout_email(conn, inv),
+                        amount=amount, currency="USD")
+        conn.commit()
+    run("UPDATE payments SET updated_at = now() - interval '1 hour' WHERE invoice_id = %s", (inv,))
+    with get_conn() as conn:
+        detect_stuck(conn, w["cid"])
+        conn.commit()
+    exc = one("SELECT count(*) FROM exceptions e JOIN payments p ON p.id = e.payment_id "
+              "WHERE p.invoice_id = %s AND e.type = 'created_too_long'", (inv,))[0]
+    check("a created_too_long exception is opened", exc == 1, exc)
+    with get_conn() as conn:
+        q = [i for i in review.list_queue(conn, w["cid"]) if i["invoice_id"] == str(inv)]
+    check("the stuck invoice shows in the review queue", len(q) == 1 and q[0]["stage"] == "payment_stuck", q)
+    pay.send_payout = lambda **kw: {"result": "submitted", "paypal_batch_id": "FAKE-A5"}
+    with get_conn() as conn:
+        r = pay.pay_invoice(conn, inv, approved_by="Person A")
+    check("clicking Pay re-sends it", r["status"] == "submitted", r)
+    check("still only one payment row (same key)",
+          one("SELECT count(*) FROM payments WHERE invoice_id = %s", (inv,))[0] == 1)
+    pay.send_payout = real
+
+def test_a2_maker_checker():
+    section("A2  a vendor payout email change needs a second admin")
+    w = world()
+    admin1, reviewer = w["users"]["admin"][0], w["users"]["reviewer"][0]
+    vid = w["vid"]
+
+    def on_file():
+        return one("SELECT destination_email FROM vendor_bank_history "
+                   "WHERE vendor_id = %s AND valid_to IS NULL", (vid,))[0]
+
+    # only one admin: applies at once, with a warning in the audit log
+    e1 = f"{uniq('one')}@example.com"
+    r = api("POST", f"/vendors/{vid}", admin1, json={"payout_email": e1})
+    check("a sole admin's change applies at once", r.status_code == 200 and on_file() == e1, r.text)
+    warn = one("SELECT count(*) FROM audit_log WHERE entity_id = %s "
+               "AND decision = 'payout_email_changed_without_second_approval'", (vid,))[0]
+    check("and the audit log carries a WARNING row", warn == 1, warn)
+
+    # two admins: the change waits
+    admin2, _ = mk_user(w["cid"], "admin")
+    e2 = f"{uniq('two')}@example.com"
+    r = api("POST", f"/vendors/{vid}", admin1, json={"payout_email": e2})
+    check("with two admins the change waits", r.status_code == 200 and on_file() == e1, r.text)
+    pending = api("GET", "/changes", admin1).json()
+    check("it shows as pending and mine", len(pending) == 1 and pending[0]["mine"] is True, pending)
+    cid = pending[0]["id"]
+    check("a second request for the same vendor is refused",
+          api("POST", f"/vendors/{vid}", admin1, json={"payout_email": "x@example.com"}).status_code == 409)
+    check("the person who asked cannot approve",
+          api("POST", f"/changes/{cid}/approve", admin1).status_code == 403)
+    check("a reviewer cannot approve", api("POST", f"/changes/{cid}/approve", reviewer).status_code == 403)
+    other = world()
+    check("another company's admin gets 404",
+          api("POST", f"/changes/{cid}/approve", other["users"]["admin"][0]).status_code == 404)
+    r = api("POST", f"/changes/{cid}/approve", admin2)
+    check("a second admin approves and the email changes", r.status_code == 200 and on_file() == e2, r.text)
+    check("the old email row is closed, not deleted",
+          one("SELECT count(*) FROM vendor_bank_history WHERE vendor_id = %s AND destination_email = %s "
+              "AND valid_to IS NOT NULL", (vid, e1))[0] == 1)
+
+    # rejecting leaves the email alone
+    e3 = f"{uniq('three')}@example.com"
+    api("POST", f"/vendors/{vid}", admin2, json={"payout_email": e3})
+    cid2 = api("GET", "/changes", admin1).json()[0]["id"]
+    r = api("POST", f"/changes/{cid2}/reject", admin1)
+    check("an admin can reject, and the email stays", r.status_code == 200 and on_file() == e2, r.text)
+    check("nothing is left pending", api("GET", "/changes", admin1).json() == [])
+
+
+def test_a6_release_rules():
+    from scripts.eval import install_hostile_stub
+    install_hostile_stub()
+    section("A6  only a delivery-only hold is released automatically")
+    from backend.investigator import investigate
+    from backend.audit import log_decision
+    w = world()
+    run("INSERT INTO deliveries (po_id, company_id, description, amount) "
+        "SELECT id, company_id, 'all of it', amount FROM purchase_orders WHERE id = %s", (w["po_id"],))
+    for reasons, expect in ((["delivery_not_received_yet"], "approved"),
+                            (["bank_details_changed"], "held"),
+                            (["delivery_not_received_yet", "fraud_risk_high"], "held")):
+        inv = mk_invoice(w["cid"], w["vid"], w["po_id"], status="held")
+        with get_conn() as conn:
+            log_decision(conn, stage="verify", entity_type="invoice", entity_id=inv, decision="hold",
+                         reason=", ".join(reasons), inputs={"verdict": {"reasons": reasons}}, actor="ai")
+            conn.commit()
+        st = investigate(inv, allow_release=True)["status"]
+        check(f"held for {reasons}: after re-verify it is '{expect}'", st == expect, st)
+
+def test_b5_long_unicode_password():
+    section("B5  a password over 72 bytes is refused, not a crash")
+    from fastapi import HTTPException
+    from backend.auth import validate_new_password
+    check("40 two-byte characters (80 bytes) is refused with 422",
+          raises(lambda: validate_new_password("é" * 20 + "ab12cd34ef" * 2 + "ñ" * 10), HTTPException) is not None)
+    validate_new_password("correct-horse-battery-staple-9")
+    check("a normal long password still passes", True)
 
 def main():
     tests = [test_s4_database_isolation, test_s1_s3_tool_scoping, test_s5_roles_and_four_eyes, test_s6_sessions_and_login,
              test_s9_uploads, test_s12_b2_webhooks, test_b2_settlement_replay_and_order, test_b1_parallel_payment,
-             test_s10_injection, test_s11_cors]
+             test_s10_injection, test_s11_cors, test_a4_failed_payment, test_a5_stuck_created, test_a2_maker_checker, test_a6_release_rules, test_b5_long_unicode_password]
     only = sys.argv[1:]
     for t in tests:
         if only and not any(o in t.__name__ for o in only):

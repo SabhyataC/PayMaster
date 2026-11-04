@@ -207,7 +207,6 @@ CREATE INDEX IF NOT EXISTS idx_reviews_invoice ON reviews (invoice_id);
 
 -- Case memory: one row per past human review, with the signals that fired and the outcome.
 
-
 -- Needs-review corrections: the first AI-extracted values are kept here, never overwritten.
 ALTER TABLE extractions
 ADD COLUMN IF NOT EXISTS original_extracted jsonb;
@@ -296,15 +295,26 @@ END $$;
 ALTER TABLE vendor_bank_history
 ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies (id);
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+
 ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'reviewer', 'viewer'));
 
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS uploaded_by UUID REFERENCES users (id);
-ALTER TABLE extractions ADD COLUMN IF NOT EXISTS uploaded_by UUID REFERENCES users (id);
+ALTER TABLE users
+ADD CONSTRAINT users_role_check CHECK (
+    role IN ('admin', 'reviewer', 'viewer')
+);
+
+ALTER TABLE invoices
+ADD COLUMN IF NOT EXISTS uploaded_by UUID REFERENCES users (id);
+
+ALTER TABLE extractions
+ADD COLUMN IF NOT EXISTS uploaded_by UUID REFERENCES users (id);
 
 -- Fill company_id on old rows from their parents; whatever has no owner at all goes to one
 -- visible "Legacy (unassigned)" company, so nothing is left invisible and NOT NULL can hold.
@@ -381,20 +391,33 @@ BEGIN
 END $$;
 
 ALTER TABLE vendors ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE vendor_bank_history ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE purchase_orders ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE deliveries ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE invoices ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE payments ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE ledger_entries ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE exceptions ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE reviews ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE extractions ALTER COLUMN company_id SET NOT NULL;
+
 ALTER TABLE audit_log ALTER COLUMN company_id SET NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS vendors_company_id_id ON vendors (company_id, id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS purchase_orders_company_id_id ON purchase_orders (company_id, id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_company_id_id ON invoices (company_id, id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS payments_company_id_id ON payments (company_id, id);
 
 -- A row can only point at a parent that belongs to the SAME company. The database refuses the rest.
@@ -458,17 +481,28 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_vbh_company ON vendor_bank_history (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_po_company ON purchase_orders (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_deliveries_company ON deliveries (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_extractions_company ON extractions (company_id);
+
 CREATE INDEX IF NOT EXISTS idx_exceptions_company ON exceptions (company_id);
 
 -- Ledger: the same line can never be written twice for one payment.
-CREATE UNIQUE INDEX IF NOT EXISTS vbh_one_current ON vendor_bank_history (vendor_id) WHERE valid_to IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS vbh_one_current ON vendor_bank_history (vendor_id)
+WHERE
+    valid_to IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ledger_line_once
-    ON ledger_entries (payment_id, entry_type, account, direction)
-    WHERE payment_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_line_once ON ledger_entries (
+    payment_id,
+    entry_type,
+    account,
+    direction
+)
+WHERE
+    payment_id IS NOT NULL;
 
 -- Webhooks: every PayPal event is recorded once; a replay is recognised and not processed again.
 CREATE TABLE IF NOT EXISTS webhook_events (
@@ -593,9 +627,46 @@ FROM reviews r
         LIMIT 1
     ) f ON true;
 
-
 -- B6: quantity. All three are optional: the quantity check runs only when the PO and the
 -- invoice both state one (see backend/checks.py). Deliveries without a quantity are not counted.
-ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (quantity IS NULL OR quantity > 0);
-ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (quantity IS NULL OR quantity > 0);
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (quantity IS NULL OR quantity > 0);
+ALTER TABLE purchase_orders
+ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (
+    quantity IS NULL
+    OR quantity > 0
+);
+
+ALTER TABLE deliveries
+ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (
+    quantity IS NULL
+    OR quantity > 0
+);
+
+ALTER TABLE invoices
+ADD COLUMN IF NOT EXISTS quantity NUMERIC(14, 3) CHECK (
+    quantity IS NULL
+    OR quantity > 0
+);
+
+-- A2: maker-checker. One admin asks, a different admin approves.
+CREATE TABLE IF NOT EXISTS pending_changes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    company_id UUID NOT NULL REFERENCES companies (id),
+    kind TEXT NOT NULL, -- 'vendor_email'
+    target_id UUID NOT NULL, -- the vendor id
+    payload JSONB NOT NULL, -- {"new_email": "..."}
+    requested_by UUID NOT NULL REFERENCES users (id),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (
+        status IN (
+            'pending',
+            'approved',
+            'rejected'
+        )
+    ),
+    decided_by UUID REFERENCES users (id),
+    decided_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- only one open request per vendor at a time
+CREATE UNIQUE INDEX IF NOT EXISTS pending_one_per_target ON pending_changes (kind, target_id)
+WHERE
+    status = 'pending';

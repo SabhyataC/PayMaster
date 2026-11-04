@@ -13,6 +13,7 @@ from backend.auth import (
 from backend.db import get_conn
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+MAX_AUTO_PAY_LIMIT = Decimal("50000")
 
 
 class MemberIn(BaseModel):
@@ -149,8 +150,9 @@ def set_settings(body: SettingsIn, user: dict = Depends(admin_only)):
             value = Decimal(str(body.auto_pay_limit))
         except InvalidOperation:
             raise HTTPException(422, "auto_pay_limit must be a number")
-        if not value.is_finite() or value <= 0 or value > Decimal("100000000"):
-            raise HTTPException(422, "auto_pay_limit must be above 0")
+        if not value.is_finite() or value <= 0 or value > MAX_AUTO_PAY_LIMIT:
+            raise HTTPException(
+                422, f"auto_pay_limit must be above 0 and at most {MAX_AUTO_PAY_LIMIT}")
     with get_conn() as conn:
         conn.execute("UPDATE companies SET auto_pay_limit = %s WHERE id = %s", (value, user["company_id"]))
         log_decision(conn, stage="admin", entity_type="company", entity_id=user["company_id"],

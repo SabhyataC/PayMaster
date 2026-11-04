@@ -463,7 +463,7 @@
                 const pol = c.policy || {};
                 box.innerHTML = `
                     <h3>${esc(inv.invoice_number)} (${esc(inv.vendor)}): ${esc(inv.amount)} ${esc(inv.currency)}</h3>
-                    <p>Status <b>${esc(inv.status)}</b>. Pays to ${esc(inv.destination_email || "the vendor's email on file")}. Has PO: ${inv.has_po ? "yes" : "no"}.</p>
+                    <p>Status <b>${esc(inv.status)}</b>. Pays to ${esc(inv.destination_email || "NO payout email on file for this vendor")}.${inv.invoice_email && inv.invoice_email.toLowerCase() !== (inv.destination_email || "").toLowerCase() ? ` <b>The invoice asked for ${esc(inv.invoice_email)} instead.</b> To pay that one, an admin must update the vendor first.` : ""} Has PO: ${inv.has_po ? "yes" : "no"}.</p>
                     <h4>AI verdict: ${esc(v.decision || "none yet")} (confidence ${esc(v.confidence ?? "n/a")})</h4>
                     ${list(v.reasons || [], "No reasons recorded.")}
                     <h4>Evidence</h4>${list((v.evidence || []).map((e) => typeof e === "string" ? e : `${e.passed ? "✔ PASSED" : "✘ FAILED"}  ${e.check}: ${e.detail}`), "No evidence recorded.")}
@@ -581,7 +581,7 @@
                 case "blocked": return `Blocked, not sent: ${(d.reasons || []).join(", ")}.`;
                 case "not_approved": return `Not sent: the invoice is '${d.invoice_status}', not approved.`;
                 case "unknown": return "PayPal did not answer clearly. Outcome unknown. Do NOT click Pay again; run reconcile.";
-                case "failed": return "PayPal refused the payment.";
+                case "failed": return "PayPal refused the payment and no money moved. See Exceptions for the reason, fix it (funds or the vendor's email), then click Pay again to retry.";
                 default: return `Result: ${d.status}`;
             }
         }

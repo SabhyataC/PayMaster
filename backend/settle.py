@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import requests
-
+import json
 from backend.audit import log_decision
 from backend.paypal_client import base_url, get_token
 
@@ -140,7 +140,7 @@ def sync_payment(conn, batch_id: str) -> dict:
 
     payment_id, status, amount, currency, invoice_id = row
 
-    if new_status is None:
+    if new_status is None:    
         log_decision(
             conn, stage="pay", entity_type="payment", entity_id=payment_id,
             decision="unmapped_status",
@@ -162,6 +162,15 @@ def sync_payment(conn, batch_id: str) -> dict:
         """,
         (new_status, batch_id, item.get("payout_item_id"), payment_id),
     )
+
+    if new_status == "failed":
+        err = (item.get("errors") or {}).get("name") or item_status
+        conn.execute(
+            """INSERT INTO exceptions (payment_id, type, detail, company_id)
+               VALUES (%s, 'payment_failed', %s::jsonb, (SELECT company_id FROM payments WHERE id = %s))
+               ON CONFLICT (payment_id, type) WHERE status = 'open' DO NOTHING""",
+            (payment_id, json.dumps({"invoice_id": str(invoice_id), "paypal_error": err}), payment_id),
+        )
 
     fee = Decimal("0")
     if new_status == "success":

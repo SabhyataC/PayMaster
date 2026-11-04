@@ -12,7 +12,8 @@ def make_key(invoice_id, attempt=1) -> str:
     return base if attempt == 1 else f"{base}-{attempt}"
 
 
-def reserve_payment(conn, *, invoice_id, destination_email, amount, currency="USD"):
+def reserve_payment(conn, *, invoice_id, destination_email, amount, currency="USD",
+                    allow_retry_failed=False):
     """
     Create the payment row for this invoice, or return the one that already exists.
     Safe to call any number of times. A new attempt is created only when the latest
@@ -29,7 +30,7 @@ def reserve_payment(conn, *, invoice_id, destination_email, amount, currency="US
 
     if latest is None:
         attempt = 1
-    elif latest[1] in REPAYABLE:
+    elif latest[1] in REPAYABLE or (allow_retry_failed and latest[1] == "failed"):
         attempt = latest[2] + 1
     else:  # in progress or finished: never create a second payment
         return {"payment_id": latest[0], "key": latest[3],

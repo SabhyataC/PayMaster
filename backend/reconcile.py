@@ -13,6 +13,7 @@ UNKNOWN_LIMIT = timedelta(minutes=30)
 PENDING_LIMIT = timedelta(hours=1)
 UNCLAIMED_LIMIT = timedelta(days=7)
 PENDING_STATUSES = ("submitted", "pending")
+CREATED_LIMIT = timedelta(minutes=15)
 
 # PayPal's Transaction Search can lag, so we don't judge payouts younger than this.
 MIN_AGE_HOURS = 3
@@ -36,6 +37,7 @@ def detect_stuck(conn, company_id=None):
         ("unknown_outcome", ("unknown",), UNKNOWN_LIMIT),
         ("pending_too_long", PENDING_STATUSES, PENDING_LIMIT),
         ("unclaimed_too_long", ("unclaimed",), UNCLAIMED_LIMIT),
+        ("created_too_long", ("created",), CREATED_LIMIT),
     ]
     new_counts = {}
     for type_, statuses, limit in rules:
@@ -293,13 +295,47 @@ def handle_unclaimed(conn, company_id=None):
             print(f"reconcile: could not handle unclaimed payment {pid}: {e}")
     return counts
 
+def detect_failed(conn, company_id=None):
+    """Failed payments nobody has retried: a person must look at why PayPal refused them.
+    Also closes the exception once a later attempt exists. Returns {exception_type: new_count}."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT p.id, p.invoice_id, p.attempt,
+                      (SELECT a.inputs->'paypal'->'error'->>'name' FROM audit_log a
+                        WHERE a.entity_id = p.id AND a.stage = 'pay' AND a.decision = 'rejected'
+                        ORDER BY a.id DESC LIMIT 1)
+               FROM payments p
+               WHERE p.status = 'failed'
+                 AND NOT EXISTS (SELECT 1 FROM payments q
+                                 WHERE q.invoice_id = p.invoice_id AND q.attempt > p.attempt)
+                 AND (%s::uuid IS NULL OR p.company_id = %s::uuid)""",
+            (company_id, company_id),
+        )
+        rows = cur.fetchall()
+        cur.execute(
+            """UPDATE exceptions e SET status = 'resolved', resolved_by = 'reconcile',
+                      resolved_at = now(), note = 'Payment was retried'
+               WHERE e.type = 'payment_failed' AND e.status = 'open'
+                 AND (%s::uuid IS NULL OR e.company_id = %s::uuid)
+                 AND EXISTS (SELECT 1 FROM payments p JOIN payments q ON q.invoice_id = p.invoice_id
+                             WHERE p.id = e.payment_id AND q.attempt > p.attempt)""",
+            (company_id, company_id),
+        )
+    new_counts = {}
+    for pid, invoice_id, attempt, err in rows:
+        detail = {"invoice_id": str(invoice_id), "attempt": attempt, "paypal_error": err}
+        if add_exception(conn, pid, "payment_failed", detail):
+            new_counts["payment_failed"] = new_counts.get("payment_failed", 0) + 1
+    return new_counts
+
 def run_reconcile(conn, commit=True, company_id=None):
     """Check payments against PayPal. Returns {exception_type: new_count}.
     With company_id, only that company's payments are looked at or changed. Without it (the
     platform job: python -m backend.reconcile) every company is covered, and payouts that no
     company owns are reported to the platform operator."""
     new_counts = {}
-    steps = [detect_stuck(conn, company_id), detect_paypal_disagreements(conn, company_id)]
+    steps = [detect_stuck(conn, company_id), detect_failed(conn, company_id),
+             detect_paypal_disagreements(conn, company_id)]
     if company_id is None:
         steps.append(detect_unknown_payouts(conn))
     steps.append(handle_unclaimed(conn, company_id))

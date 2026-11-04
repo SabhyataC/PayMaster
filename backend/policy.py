@@ -13,6 +13,17 @@ def auto_pay_limit(conn, company_id) -> Decimal:
     return Decimal(row[0]) if row and row[0] is not None else MAX_AUTO_PAY
 
 
+def payout_email(conn, invoice_id):
+    """The vendor's current payout email on file (never the one printed on the invoice)."""
+    row = conn.execute(
+        """SELECT h.destination_email
+           FROM invoices i
+           JOIN vendor_bank_history h ON h.vendor_id = i.vendor_id AND h.valid_to IS NULL
+           WHERE i.id = %s""",
+        (invoice_id,),
+    ).fetchone()
+    return row[0] if row else None
+
 def check_policy(conn, invoice_id) -> dict:
     """
     Decide if an invoice may be paid automatically.
@@ -31,6 +42,7 @@ def check_policy(conn, invoice_id) -> dict:
         }
 
     status, amount, currency, email, company_id = row
+    email = payout_email(conn, invoice_id)
     limit = auto_pay_limit(conn, company_id)
     blocks, holds = [], []
 

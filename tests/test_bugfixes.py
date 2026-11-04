@@ -8,7 +8,7 @@ import json
 import uuid
 from decimal import Decimal
 
-from tests.test_hardening import (  # noqa: F401  (shares the DB guard and the fixtures)
+from test_hardening import (  # noqa: F401  (shares the DB guard and the fixtures)
     ROOT, bearer, check, client, mk_company, mk_invoice, mk_po, mk_user, mk_vendor, one, raises, run,
     section, uniq, world, RESULTS,
 )
