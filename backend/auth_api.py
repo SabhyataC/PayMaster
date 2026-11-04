@@ -70,7 +70,7 @@ def _audit(conn, user_id, decision, reason):
 
 @router.post("/signup")
 def signup(body: Signup, request: Request, response: Response):
-    if os.environ.get("SIGNUP_ENABLED", "true").lower() in ("0", "false", "no"):
+    if os.environ.get("SIGNUP_ENABLED", "false").lower() not in ("1", "true", "yes"):
         raise HTTPException(403, "Signup is closed. Ask an admin of your company to add you")
     ip = client_ip(request)
     if too_many(f"signup-ip:{ip}", SIGNUP_MAX_PER_IP_HOUR, 60):

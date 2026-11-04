@@ -3,7 +3,8 @@ from decimal import Decimal
 from backend.audit import log_decision
 from backend.idempotency import reserve_payment
 from backend.paypal_client import send_payout
-from backend.policy import check_policy
+from backend.policy import check_policy, payout_email
+from backend.reconcile import add_exception
 
 # What each PayPal answer means for our payment row.
 RESULT_TO_STATUS = {
@@ -60,14 +61,16 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
 
     # 2. reserve the payment row and save it before talking to PayPal
     inv = conn.execute(
-        "SELECT amount, currency, destination_email FROM invoices WHERE id = %s",
+        "SELECT amount, currency FROM invoices WHERE id = %s",
         (invoice_id,),
     ).fetchone()
-    amount, currency, email = Decimal(inv[0]), inv[1], inv[2]
+    amount, currency = Decimal(inv[0]), inv[1]
+    email = payout_email(conn, invoice_id)
 
     pay = reserve_payment(
         conn, invoice_id=invoice_id, destination_email=email,
         amount=amount, currency=currency,
+        allow_retry_failed=bool(approved_by),
     )
     conn.commit()
 
@@ -113,6 +116,8 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
         (new_status, result.get("paypal_batch_id"), pay["payment_id"]),
     )
 
+    
+
     # 5. audit
     log_decision(
         conn, stage="pay", entity_type="payment", entity_id=pay["payment_id"],
@@ -120,6 +125,11 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
         reason=f"PayPal answered '{result['result']}', payment set to '{new_status}'",
         inputs={"key": pay["key"], "paypal": result},
     )
+    if new_status == "failed":
+        err = result.get("error")
+        name = err.get("name") if isinstance(err, dict) else None
+        add_exception(conn, pay["payment_id"], "payment_failed",
+                      {"invoice_id": str(invoice_id), "paypal_error": name or str(err)[:200]})
     conn.commit()
 
     return {

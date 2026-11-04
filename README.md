@@ -73,7 +73,7 @@ Copy-Item .env.example .env
 | `PAYPAL_WEBHOOK_ID` | for webhooks | With no value every webhook is refused (503) |
 | `PAYPAL_ACCOUNT_EMAIL` | no | Shown read-only in the console |
 | `CONSOLE_ORIGINS` | yes when deployed | Comma-separated exact origins allowed by CORS. `*` is refused. Default is the local console |
-| `SIGNUP_ENABLED` | no | `false` closes public signup; admins then add people on the Team page |
+| `SIGNUP_ENABLED` | no | Default `false`: public signup is closed and admins add people on the Team page. Set `true` to allow public signup |
 | `TRUST_PROXY` | no | `true` only behind a proxy you control, so login limits use the real client address |
 | `COOKIE_SAMESITE` | no | `lax` (default), `strict` or `none` (needs https) |
 
@@ -194,6 +194,20 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 - Uploads are checked by content, not name: real PDF, PNG, JPG or UTF-8 text; at most 10 MB and 20 PDF pages; no scripts, launch actions or embedded files in PDFs; limited per person and per company.
 - The AI only reads. Anything inside an invoice, email, vendor name or reviewer note is treated as data. Code, never the AI, decides what may be paid: only hard checks can reject, only a named person can release a hold, and a hostile AI that approves everything still cannot get a bad invoice paid (`python -m scripts.eval --stub-ai`, `python tests/test_hardening.py`).
 - Privacy: this project is a demo on synthetic data. Documents you upload are sent to Google's Gemini API for reading, and are stored unencrypted in your Postgres database. Do not upload real personal or financial data unless you accept that. It is not certified or audited and makes no claim of compliance with PCI DSS, SOC 2, GDPR or any other standard.
+
+## Safety rules for payments
+
+- The person who uploaded an invoice can never approve it or release its payment, even in a one-person company.
+- Payouts always go to the vendor's payout email on file, never to an email printed on an invoice.
+- Changing a vendor's payout email needs a second admin to approve it. If a company has only one admin, the change applies at once and the audit log records a WARNING.
+- The auto-pay limit cannot be set above 50,000.
+- A payment PayPal refuses opens a `payment_failed` exception and can be retried by a person. A payment saved but never sent opens a `created_too_long` exception.
+
+## Known limitations (demo)
+
+- One shared PayPal sandbox account sends every company's payouts. A real product would give each company its own funding account.
+- Signup does not verify email addresses. This is why signup is off by default.
+- New vendors, POs, deliveries and auto-pay limit changes need only one admin.
 
 ## Limits
 

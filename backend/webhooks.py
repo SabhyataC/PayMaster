@@ -167,6 +167,7 @@ from backend.vendors_api import router as vendors_router
 from backend.po_api import router as po_router
 from backend.upload_api import router as upload_router
 from backend.attention_api import router as attention_router
+from backend.changes_api import router as changes_router
 
 app = FastAPI()
 def console_origins():
@@ -223,3 +224,4 @@ app.include_router(vendors_router, dependencies=guard)
 app.include_router(po_router, dependencies=guard)
 app.include_router(upload_router, dependencies=guard)
 app.include_router(attention_router, dependencies=guard)
+app.include_router(changes_router, dependencies=guard)

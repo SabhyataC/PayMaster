@@ -334,6 +334,13 @@ def investigate(invoice_id, allow_release=False):
             "SELECT status FROM invoices WHERE id = %s FOR UPDATE", (invoice_id,)
         ).fetchone()
         before = row[0] if row else None
+        if allow_release and before == "held":
+            # only a hold that was purely "waiting for the delivery" may be released without a person
+            prev = conn.execute(
+                "SELECT inputs FROM audit_log WHERE entity_id = %s AND stage = 'verify' "
+                "ORDER BY id DESC LIMIT 1", (invoice_id,)).fetchone()
+            prev_reasons = (((prev[0] or {}).get("verdict") or {}).get("reasons") or []) if prev else []
+            allow_release = bool(prev_reasons) and all(r == "delivery_not_received_yet" for r in prev_reasons)
         after = next_status(before, wanted, allow_release)
         if (before == "approved" and after == "held" and conn.execute(
                 "SELECT 1 FROM audit_log WHERE entity_id = %s AND stage = 'review' AND decision = 'approved' LIMIT 1",

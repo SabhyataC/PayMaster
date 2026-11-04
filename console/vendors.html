@@ -230,7 +230,7 @@
                 <a href="index.html#assistant">Ask &amp; Advise</a>
                 <a href="vendors.html" class="active">Vendors &amp; POs</a>
                 <a href="team.html" class="admin-only">Team &amp; settings</a>
-<a href="account.html">My account</a>
+                <a href="account.html">My account</a>
             </nav>
             <div class="foot"><button id="logout">Log out</button></div>
         </aside>
@@ -250,6 +250,7 @@
                     <button>Add vendor</button>
                 </form>
                 <div class="msg" id="vmsg"></div>
+                <div id="pending" class="admin-only"></div>
                 <table>
                     <thead>
                         <tr>
@@ -353,6 +354,13 @@
             <td class="admin-only"><button class="ghost" data-id="${esc(v.id)}">Change email</button></td></tr>`).join("");
             $("pvendor").innerHTML = vendors.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join("");
         }
+        async function loadChanges() {
+            let list;
+            try { list = await call("/changes"); } catch { return; }   // non-admins just see nothing
+            $("pending").innerHTML = list.length ? "<h3>Waiting for approval</h3>" + list.map(c =>
+                `<p>${esc(c.vendor)}: payout email ${esc(c.old_email || "none")} to <b>${esc(c.new_email)}</b>, asked by ${esc(c.requested_by)}.
+                ${c.mine ? "" : `<button data-approve="${esc(c.id)}">Approve</button> `}<button class="ghost" data-reject="${esc(c.id)}">${c.mine ? "Cancel" : "Reject"}</button></p>`).join("") : "";
+        }
         async function loadPOs() {
             const pos = (await call("/pos")).items;
             $("pbody").innerHTML = pos.map(p => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${money(p.amount, p.currency)}</td><td>${p.quantity == null ? "" : esc(p.quantity)}</td>
@@ -366,7 +374,7 @@
             <td>${esc(d.received_at.slice(0, 10))}</td></tr>`).join("");
         }
         async function refresh() {
-            try { await loadVendors(); await loadPOs(); await loadDeliveries(); }
+            try { await loadVendors(); await loadChanges(); await loadPOs(); await loadDeliveries(); }
             catch (e) { fail("vmsg", e); }
         }
 
@@ -382,7 +390,13 @@
             if (!id) return;
             const email = prompt("New payout email:");
             if (!email) return;
-            try { await call("/vendors/" + id, "POST", { payout_email: email.trim() }); done("vmsg", "Payout email changed"); await refresh(); }
+            try { await call("/vendors/" + id, "POST", { payout_email: email.trim() }); done("vmsg", "Done. If you have a second admin, they must approve it first; otherwise it was applied now."); await refresh(); }
+            catch (err) { fail("vmsg", err); }
+        };
+        $("pending").onclick = async e => {
+            const a = e.target.dataset && e.target.dataset.approve, r = e.target.dataset && e.target.dataset.reject;
+            const id = a || r; if (!id) return;
+            try { await call(`/changes/${id}/${a ? "approve" : "reject"}`, "POST"); done("vmsg", a ? "Approved. The payout email is changed." : "Request closed."); await refresh(); }
             catch (err) { fail("vmsg", err); }
         };
         $("pbody").onclick = async e => {
