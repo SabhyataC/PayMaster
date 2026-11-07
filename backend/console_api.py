@@ -29,7 +29,7 @@ def _rows(conn, sql, params=()):
 @router.get("/invoices")
 def invoices(user: dict = Depends(current_member)):
     with get_conn() as conn:
-        return {"items": _rows(conn, """
+        items = _rows(conn, """
             SELECT i.id, i.invoice_number, v.name AS vendor, i.amount, i.currency, i.status,
                    (SELECT a.decision FROM audit_log a
                      WHERE a.entity_id = i.id AND a.stage = 'fraud'
@@ -38,7 +38,25 @@ def invoices(user: dict = Depends(current_member)):
                    i.received_at
             FROM invoices i JOIN vendors v ON v.id = i.vendor_id
             WHERE i.company_id = %s
-            ORDER BY i.received_at DESC""", (user["company_id"],))}
+            ORDER BY i.received_at DESC""", (user["company_id"],))
+        # plain-words reason for held invoices, from the latest Verify evidence
+        held = [i["id"] for i in items if i["status"] == "held"]
+        why = {}
+        if held:
+            rows = conn.execute(
+                "SELECT DISTINCT ON (entity_id) entity_id::text, inputs FROM audit_log "
+                "WHERE stage = 'verify' AND entity_id::text = ANY(%s) "
+                "ORDER BY entity_id, id DESC", (held,)).fetchall()
+            for eid, inputs in rows:
+                ev = ((inputs or {}).get("verdict") or {}).get("evidence") or []
+                why[eid] = "; ".join(
+                    e["detail"] for e in ev
+                    if isinstance(e, dict) and not e.get("passed")
+                    and e.get("check") not in ("agent_summary", "reject_cap")
+                    and not str(e.get("check", "")).startswith("fraud_signal"))
+        for i in items:
+            i["why"] = why.get(i["id"], "")
+        return {"items": items}
 
 
 @router.get("/payments")

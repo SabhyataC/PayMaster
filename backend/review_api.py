@@ -20,6 +20,9 @@ class Decision(BaseModel):
     note: str
     confirmed_with_vendor: bool = False
 
+class PayIn(BaseModel):
+    confirm_missing_delivery: bool = False
+
 
 def _fail(e: ReviewError):
     raise HTTPException(STATUS_FOR.get(e.code, 422), {"code": e.code, "message": e.message})
@@ -57,8 +60,10 @@ def decision(invoice_id: str, body: Decision, user: dict = Depends(reviewer_or_a
         _fail(e)
 
 @router.post("/{invoice_id}/pay")
-def release_payment(invoice_id: str, user: dict = Depends(reviewer_or_admin)):
+def release_payment(invoice_id: str, body: PayIn | None = None,
+                    user: dict = Depends(reviewer_or_admin)):
     """Pay an approved invoice. The logged-in person releasing it is recorded as the approver."""
+    confirm = bool(body and body.confirm_missing_delivery)
     with get_conn() as conn:
         _own(conn, invoice_id, user["company_id"])
         if check_policy(conn, invoice_id)["outcome"] == "hold":
@@ -66,4 +71,5 @@ def release_payment(invoice_id: str, user: dict = Depends(reviewer_or_admin)):
                 assert_not_own_upload(conn, invoice_id, user["id"])
             except ReviewError as e:
                 _fail(e)
-        return pay_invoice(conn, invoice_id, approved_by=user["full_name"])
+        return pay_invoice(conn, invoice_id, approved_by=user["full_name"],
+                           confirm_missing_delivery=confirm)
