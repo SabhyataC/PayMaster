@@ -285,6 +285,7 @@
                             <th>Delivered</th>
                             <th>Status</th>
                             <th></th>
+                            <th>Files</th>
                         </tr>
                     </thead>
                     <tbody id="pbody"></tbody>
@@ -309,6 +310,9 @@
                             <th>Value</th>
                             <th>Qty</th>
                             <th>Received</th>
+
+                            <th class="admin-only"></th>
+                            <th>Files</th>
                         </tr>
                     </thead>
                     <tbody id="dbody"></tbody>
@@ -350,9 +354,12 @@
         let vendors = [];
         async function loadVendors() {
             vendors = (await call("/vendors")).items;
-            $("vbody").innerHTML = vendors.map(v => `<tr><td>${esc(v.name)}</td><td>${esc(v.country)}</td><td>${esc(v.payout_email)}</td>
-            <td class="admin-only"><button class="ghost" data-id="${esc(v.id)}">Change email</button></td></tr>`).join("");
-            $("pvendor").innerHTML = vendors.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join("");
+            $("vbody").innerHTML = vendors.map(v => `<tr><td>${esc(v.name)}${v.active ? "" : " (inactive)"}</td><td>${esc(v.country)}</td><td>${esc(v.payout_email)}</td>
+            <td class="admin-only"><button class="ghost" data-id="${esc(v.id)}">Change email</button>
+            <button class="ghost" data-vedit="${esc(v.id)}" data-name="${esc(v.name)}" data-country="${esc(v.country)}">Edit</button>
+            <button class="ghost" data-vtoggle="${esc(v.id)}" data-active="${v.active}">${v.active ? "Deactivate" : "Reactivate"}</button>
+            <button class="ghost" data-vdel="${esc(v.id)}">Delete</button></td></tr>`).join("");
+            $("pvendor").innerHTML = vendors.filter(v => v.active).map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join("");
         }
         async function loadChanges() {
             let list;
@@ -361,20 +368,29 @@
                 `<p>${esc(c.vendor)}: payout email ${esc(c.old_email || "none")} to <b>${esc(c.new_email)}</b>, asked by ${esc(c.requested_by)}.
                 ${c.mine ? "" : `<button data-approve="${esc(c.id)}">Approve</button> `}<button class="ghost" data-reject="${esc(c.id)}">${c.mine ? "Cancel" : "Reject"}</button></p>`).join("") : "";
         }
+        let ATT = [];
+        function fileCell(type, id) {
+            const mine = ATT.filter(a => a.entity_type === type && a.entity_id === id);
+            return mine.map(a => `<a href="#" data-open="${esc(a.id)}">${esc(a.filename)}</a> <button class="ghost admin-only" data-adel="${esc(a.id)}">x</button>`).join("<br>")
+                + `<div class="admin-only"><button class="ghost" data-attach="${type}:${esc(id)}">Attach file</button></div>`;
+        }
         async function loadPOs() {
             const pos = (await call("/pos")).items;
             $("pbody").innerHTML = pos.map(p => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${money(p.amount, p.currency)}</td><td>${p.quantity == null ? "" : esc(p.quantity)}</td>
             <td>${money(p.delivered)}</td><td>${esc(p.status)}</td>
-            <td class="admin-only">${p.delivered < p.amount ? `<button class="ghost" data-po="${esc(p.id)}">Mark fully delivered</button>` : ""}</td></tr>`).join("");
+            <td class="admin-only">${p.status !== "cancelled" && p.delivered < p.amount ? `<button class="ghost" data-po="${esc(p.id)}">Mark fully delivered</button> ` : ""}
+            ${p.status !== "cancelled" ? `<button class="ghost" data-pedit="${esc(p.id)}" data-amt="${esc(p.amount)}" data-cur="${esc(p.currency)}" data-qty="${p.quantity == null ? "" : esc(p.quantity)}">Edit</button> <button class="ghost" data-pcancel="${esc(p.id)}">Cancel</button>` : ""}</td><td>${fileCell("purchase_order", p.id)}</td></tr>`).join("");
             $("dpo").innerHTML = pos.map(p => `<option value="${esc(p.id)}">${esc(p.po_number)} (${esc(p.vendor)})</option>`).join("");
         }
         async function loadDeliveries() {
             const ds = (await call("/deliveries")).items;
             $("dbody").innerHTML = ds.map(d => `<tr><td>${esc(d.po_number)}</td><td>${esc(d.description)}</td><td>${money(d.amount)}</td><td>${d.quantity == null ? "" : esc(d.quantity)}</td>
-            <td>${esc(d.received_at.slice(0, 10))}</td></tr>`).join("");
+            <td>${esc(d.received_at.slice(0, 10))}</td>
+            <td class="admin-only"><button class="ghost" data-dedit="${esc(d.id)}" data-desc="${esc(d.description)}" data-amt="${esc(d.amount)}" data-qty="${d.quantity == null ? "" : esc(d.quantity)}">Edit</button>
+            <button class="ghost" data-ddel="${esc(d.id)}">Delete</button></td><td>${fileCell("delivery", d.id)}</td></tr>`).join("");
         }
         async function refresh() {
-            try { await loadVendors(); await loadChanges(); await loadPOs(); await loadDeliveries(); }
+            try { await loadVendors(); await loadChanges(); ATT = (await call("/attachments")).items; await loadPOs(); await loadDeliveries(); }
             catch (e) { fail("vmsg", e); }
         }
 
@@ -386,12 +402,25 @@
             } catch (err) { fail("vmsg", err); }
         };
         $("vbody").onclick = async e => {
-            const id = e.target.dataset && e.target.dataset.id;
-            if (!id) return;
-            const email = prompt("New payout email:");
-            if (!email) return;
-            try { await call("/vendors/" + id, "POST", { payout_email: email.trim() }); done("vmsg", "Done. If you have a second admin, they must approve it first; otherwise it was applied now."); await refresh(); }
-            catch (err) { fail("vmsg", err); }
+            const t = e.target.dataset || {};
+            try {
+                if (t.id) {
+                    const email = prompt("New payout email:"); if (!email) return;
+                    await call("/vendors/" + t.id, "POST", { payout_email: email.trim() });
+                    done("vmsg", "Done. If you have a second admin, they must approve it first; otherwise it was applied now.");
+                } else if (t.vedit) {
+                    const name = prompt("Name:", t.name); if (name === null) return;
+                    const country = prompt("Country:", t.country); if (country === null) return;
+                    await call("/vendors/" + t.vedit, "POST", { name, country });
+                    done("vmsg", "Vendor updated");
+                } else if (t.vtoggle || t.vdel) {
+                    const act = t.vdel ? "delete" : (t.active === "true" ? "deactivate" : "reactivate");
+                    const reason = prompt(`Why are you going to ${act} this vendor? (min 10 characters)`); if (!reason) return;
+                    await call(`/vendors/${t.vdel || t.vtoggle}/${act}`, "POST", { reason });
+                    done("vmsg", "Vendor " + act + "d");
+                } else return;
+                await refresh();
+            } catch (err) { fail("vmsg", err); }
         };
         $("pending").onclick = async e => {
             const a = e.target.dataset && e.target.dataset.approve, r = e.target.dataset && e.target.dataset.reject;
@@ -400,10 +429,25 @@
             catch (err) { fail("vmsg", err); }
         };
         $("pbody").onclick = async e => {
-            const id = e.target.dataset && e.target.dataset.po;
-            if (!id) return;
-            try { await call(`/pos/${id}/deliver-all`, "POST"); done("pmsg", "Marked fully delivered"); await refresh(); }
-            catch (err) { fail("pmsg", err); }
+            const t = e.target.dataset || {};
+            try {
+                if (t.po) {
+                    if (!confirm("Mark this PO as fully delivered? This records a delivery for everything not yet delivered.")) return;
+                    await call(`/pos/${t.po}/deliver-all`, "POST"); done("pmsg", "Marked fully delivered");
+                } else if (t.pedit) {
+                    const amount = prompt("Amount:", t.amt); if (amount === null) return;
+                    const currency = prompt("Currency:", t.cur); if (currency === null) return;
+                    const quantity = prompt("Quantity (blank for none):", t.qty); if (quantity === null) return;
+                    const reason = prompt("Why are you changing it? (min 10 characters)"); if (!reason) return;
+                    await call(`/pos/${t.pedit}/edit`, "POST", { amount, currency, quantity: quantity || null, reason });
+                    done("pmsg", "PO updated");
+                } else if (t.pcancel) {
+                    const reason = prompt("Why are you cancelling this PO? (min 10 characters)"); if (!reason) return;
+                    await call(`/pos/${t.pcancel}/cancel`, "POST", { reason });
+                    done("pmsg", "PO cancelled");
+                } else return;
+                await refresh();
+            } catch (err) { fail("pmsg", err); }
         };
         $("pform").onsubmit = async e => {
             e.preventDefault(); $("pmsg").textContent = "";
@@ -419,7 +463,55 @@
                 $("ddesc").value = ""; $("damt").value = ""; $("dqty").value = ""; done("dmsg", "Delivery recorded"); await refresh();
             } catch (err) { fail("dmsg", err); }
         };
+        $("dbody").onclick = async e => {
+            const t = e.target.dataset || {};
+            try {
+                if (t.dedit) {
+                    const description = prompt("What arrived:", t.desc); if (description === null) return;
+                    const amount = prompt("Value:", t.amt); if (amount === null) return;
+                    const quantity = prompt("Quantity (blank for none):", t.qty); if (quantity === null) return;
+                    const reason = prompt("Why are you changing it? (min 10 characters)"); if (!reason) return;
+                    await call(`/deliveries/${t.dedit}/edit`, "POST", { description, amount, quantity: quantity || null, reason });
+                    done("dmsg", "Delivery updated"); await refresh();
+                } else if (t.ddel) {
+                    const reason = prompt("Why are you deleting this delivery? (min 10 characters)"); if (!reason) return;
+                    await call(`/deliveries/${t.ddel}/delete`, "POST", { reason });
+                    done("dmsg", "Delivery deleted"); await refresh();
+                }
+            } catch (err) { fail("dmsg", err); }
+        };
         refresh();
+        document.addEventListener("click", async e => {
+            const t = e.target.dataset || {};
+            try {
+                if (t.open) {
+                    e.preventDefault();
+                    const r = await fetch(`${API}/attachments/${t.open}`);
+                    if (!r.ok) throw new Error("Could not open the file");
+                    window.open(URL.createObjectURL(await r.blob()), "_blank");
+                } else if (t.attach) {
+                    const [type, id] = t.attach.split(":");
+                    const inp = document.createElement("input");
+                    inp.type = "file"; inp.accept = ".pdf,.png,.jpg,.jpeg";
+                    inp.onchange = async () => {
+                        if (!inp.files[0]) return;
+                        const fd = new FormData(); fd.append("file", inp.files[0]);
+                        try {
+                            const r = await fetch(API + (type === "delivery" ? `/deliveries/${id}/attachments` : `/pos/${id}/attachments`),
+                                { method: "POST", body: fd });
+                            const d = await r.json().catch(() => ({}));
+                            if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Upload failed");
+                            await refresh();
+                        } catch (err) { alert(err.message); }
+                    };
+                    inp.click();
+                } else if (t.adel) {
+                    const reason = prompt("Why are you removing this file? (min 10 characters)"); if (!reason) return;
+                    await call(`/attachments/${t.adel}/delete`, "POST", { reason });
+                    await refresh();
+                }
+            } catch (err) { alert(err.message); }
+        });
 
         function showTab(t) {
             document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === t));

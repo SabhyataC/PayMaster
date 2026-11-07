@@ -293,7 +293,8 @@ def route_row(extraction_id):
             return _needs_review(conn, extraction_id, why)
 
         vendors = conn.execute(
-            "SELECT id FROM vendors WHERE lower(trim(name)) = lower(trim(%s)) AND company_id = %s",
+            "SELECT id FROM vendors WHERE lower(trim(name)) = lower(trim(%s)) AND company_id = %s "
+            "AND deactivated_at IS NULL",
             (fields["vendor_name"], company_id),
         ).fetchall()
         if len(vendors) != 1:
@@ -306,7 +307,7 @@ def route_row(extraction_id):
             if not po_number:
                 return _needs_review(conn, extraction_id, f"PO number '{fields['po_number']}' is unreadable")
             found = conn.execute(
-                "SELECT id FROM purchase_orders WHERE po_number = %s AND company_id = %s",
+                "SELECT id FROM purchase_orders WHERE po_number = %s AND company_id = %s AND status <> 'cancelled'",
                 (po_number, company_id),
             ).fetchone()            
             if not found:
