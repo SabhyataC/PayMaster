@@ -5,6 +5,10 @@ from backend.idempotency import reserve_payment
 from backend.paypal_client import send_payout
 from backend.policy import check_policy, payout_email
 from backend.reconcile import add_exception
+from backend.checks import run_hard_checks
+from backend.verdict import (
+    REASON_DELIVERY_NOT_RECEIVED, REASON_PO_MISSING, REASON_PO_WRONG_VENDOR,
+)
 
 # What each PayPal answer means for our payment row.
 RESULT_TO_STATUS = {
@@ -18,7 +22,7 @@ RESULT_TO_STATUS = {
 CAN_SEND = ("created", "unknown")
 
 
-def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
+def pay_invoice(conn, invoice_id, *, approved_by=None, confirm_missing_delivery=False) -> dict:
     """
     Try to pay one invoice. Safe to call any number of times.
     approved_by: name of the human releasing a 'hold'. A 'block' can never be released.
@@ -36,7 +40,30 @@ def pay_invoice(conn, invoice_id, *, approved_by=None) -> dict:
             )
         conn.commit()
         return {"status": "not_approved", "invoice_status": current}
-
+        # 0b. re-check PO and delivery now (they can change after Verify)
+    if row[0] == "approved":
+        hard = run_hard_checks(invoice_id)
+        po_no = hard["invoice"]["po_number"]
+        po_bad = [r for r in hard["reasons"] if r in (REASON_PO_MISSING, REASON_PO_WRONG_VENDOR)]
+        if po_bad:
+            log_decision(
+                conn, stage="pay", entity_type="invoice", entity_id=invoice_id,
+                decision="blocked", reason="Blocked: " + ", ".join(po_bad),
+                inputs={"po_number": po_no},
+            )
+            conn.commit()
+            return {"status": "blocked", "reasons": po_bad}
+        if REASON_DELIVERY_NOT_RECEIVED in hard["reasons"]:
+            if not (confirm_missing_delivery and approved_by):
+                conn.commit()
+                return {"status": "needs_confirmation",
+                        "reasons": [REASON_DELIVERY_NOT_RECEIVED], "po_number": po_no}
+            log_decision(
+                conn, stage="pay", entity_type="invoice", entity_id=invoice_id,
+                decision="confirmed_no_delivery", actor="human",
+                reason=f"{approved_by} chose to pay although no delivery is recorded for {po_no}",
+                inputs={"po_number": po_no},
+            )
     # 1. policy check
     policy = check_policy(conn, invoice_id)
     outcome, reasons, inputs = policy["outcome"], policy["reasons"], policy["inputs"]

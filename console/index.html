@@ -587,12 +587,22 @@
             }
         }
 
-        async function payInvoice(id, row) {
-            if (!confirm(`Pay ${row.amount} ${row.currency} to ${row.vendor}?`)) return;
+        async function payInvoice(id, row, confirmed = false) {
+            if (!confirmed && !confirm(`Pay ${row.amount} ${row.currency} to ${row.vendor}?`)) return;
             const r = await fetch(`${API}/review/${id}/pay`, {
                 method: "POST", headers: hdr(),
+                body: JSON.stringify({ confirm_missing_delivery: confirmed }),
             });
             const e = await r.json().catch(() => ({}));
+            if (r.ok && e.status === "needs_confirmation" && !confirmed) {
+                if (confirm(`PO ${e.po_number} for this invoice has no delivery recorded yet.\n\nStill proceed to pay?`)) {
+                    return payInvoice(id, row, true);
+                }
+                const c = "Cancelled: no delivery recorded, nothing was paid.";
+                $("qmsg").textContent = c;
+                $("imsg").textContent = c;
+                return;
+            }
             const m = r.ok ? payMessage(e) : `Error ${r.status}: ${errText(e)}`;
             if (r.ok) await loadQueue();
             $("qmsg").textContent = m;
@@ -666,12 +676,19 @@
                 { field: "amount", width: 110 },
                 { field: "currency", width: 100 },
                 { field: "status", width: 130, cellRenderer: badge },
+                { field: "why", headerName: "Why held", flex: 2, minWidth: 260, tooltipField: "why" },
                 { field: "fraud_risk", headerName: "Fraud risk", width: 120 },
                 { field: "received_at", headerName: "Received", flex: 1 },
                 { headerName: "Actions", width: 260, sortable: false, filter: false, cellRenderer: invoiceActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
+            onRowClicked: (e) => {
+                if (e.event && e.event.target.closest("button")) return;   // don't trigger on Pay/Audit/Re-verify clicks
+                history.replaceState(null, "", "#review");
+                showView("review");
+                showCase(e.data.id);
+            },
         });
 
         document.addEventListener("click", async ev => {
@@ -687,7 +704,7 @@
             b.disabled = true; b.textContent = "Working...";
             const url = act === "reverify" ? `${API}/invoices/${eid}/reverify`
                 : act === "delete" ? `${API}/extractions/${eid}/delete`
-                : `${API}/extractions/${eid}/retry`;
+                    : `${API}/extractions/${eid}/retry`;
             try {
                 const r = await fetch(url, opts);
                 const d = await r.json().catch(() => ({}));
