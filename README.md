@@ -23,8 +23,8 @@ Paymaster runs every invoice through four stages. Every decision is written to t
 
 ## Status
 
-- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, case memory, Pay stage, webhooks, ledger, audit log, Reconcile (settlements, exceptions, AI explainer), AG Grid console (invoices, review queue, payments and ledger, exceptions, audit timeline, summary cards).
-- Next: light cash-advice panel, end-to-end test, demo video.
+- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, case memory, Pay stage, webhooks, ledger, audit log, Reconcile (settlements, exceptions, AI explainer), AG Grid console (invoices, review queue, payments and ledger, exceptions, audit timeline, summary cards), chat, cash advice, upload with content checks, vendors and POs with deliveries and attachments, change approvals, team and settings pages.
+- Next: end-to-end test, demo video.
 - Results and limits: see `docs/ai-results.md` and `docs/fraud-signals.md`.
 
 ## PayPal sandbox accounts
@@ -35,13 +35,13 @@ Paymaster runs every invoice through four stages. Every decision is written to t
 
 ## Setup
 
-Requirements: Python 3.X, Docker Desktop, git, a PayPal developer account with sandbox access, and `cloudflared` (or any tunnel) to receive webhooks.
+Requirements: Python 3.11+, Docker Desktop, git, a PayPal developer account with sandbox access, and `cloudflared` (or any tunnel) to receive webhooks.
 
-1. Clone the repo and install the dependencies (PowerShell):
+Clone the repo and install the dependencies (PowerShell):
 
 ```powershell
-git clone https://github.com/<your-username>/paymaster.git
-cd paymaster
+git clone https://github.com/SabhyataC/PayMaster.git
+cd PayMaster
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -77,7 +77,7 @@ Copy-Item .env.example .env
 | `TRUST_PROXY` | no | `true` only behind a proxy you control, so login limits use the real client address |
 | `COOKIE_SAMESITE` | no | `lax` (default), `strict` or `none` (needs https) |
 
-If a real key or secret was ever pasted into a chat, a file or a commit, rotate it at its provider. Rotating cannot be done from code. A scan of the full git history found no secrets.
+If a real key or secret was ever pasted into a chat, a file or a commit, rotate it at its provider. Rotating cannot be done from code. `.env` is gitignored; no secrets are committed.
 
 ## Database
 
@@ -92,7 +92,10 @@ Get-Content db\schema.sql | docker exec -i paymaster-db psql -U paymaster -d pay
 
 ## Seed the synthetic company
 
+The default database is named `paymaster`, which the seed script refuses unless you allow it on purpose:
+
 ```powershell
+$env:ALLOW_SEED = "1"
 python -m backend.seed
 ```
 
@@ -130,8 +133,8 @@ The queue has two kinds of item. `verify_hold` means Verify wants a person (deci
 `scripts/make_test_set.py` builds 56 SYNTHETIC invoices (28 clean, 28 bad) with the correct decision for each in `samples/eval_set.csv`, and sets 10 aside as a hold-out. `scripts/eval.py` runs Verify on them and prints frauds caught, clean invoices wrongly held and bad invoices wrongly approved. Use a **separate database** whose name contains `eval` or `test`: both scripts erase data, and refuse to run on any other name.
 
 ```powershell
-createdb paymaster_eval
-$env:DATABASE_URL = "postgresql://<user>:<password>@localhost:<port>/paymaster_eval"
+docker exec -i paymaster-db createdb -U paymaster paymaster_eval
+$env:DATABASE_URL = "postgresql://paymaster:<password>@localhost:5433/paymaster_eval"
 python -m scripts.make_test_set
 python -m scripts.eval --stub-ai        # code layers only, no Gemini needed
 python -m scripts.eval --sleep 15       # real Gemini (slow on the free tier)
@@ -182,6 +185,8 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 | `success_mismatch` | We recorded the payment as successful but PayPal says otherwise. |
 | `amount_mismatch` | The amount or currency PayPal shows differs from our settlement record. |
 | `unknown_payout` | PayPal shows a payout that we have no payment record for. |
+| `payment_failed` | PayPal refused the payment. A person can retry it. |
+| `created_too_long` | A payment was saved but never sent, still so after 15 minutes. |
 
 **AI explainer.** `POST /exceptions/{id}/explain` returns a plain-English explanation and one suggested action from a fixed list (`wait`, `cancel_unclaimed`, `contact_vendor`, `recheck_with_paypal`, `escalate`; anything else becomes `escalate`). The AI only explains and suggests: it never pays or cancels. If Gemini fails, a fixed template for the exception type is used. Scores and limits are in `docs/ai-results.md`.
 
@@ -213,9 +218,9 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 
 - Currencies: USD, GBP and EUR only. Amounts above the company's automatic payment limit (default 5000.00, set on the Team page) are always held for a person.
 - Quantity: checked only when the PO and the invoice both state a quantity (the invoice quantity is the sum of its lines, and is used only if every line has one). It may not exceed what was received (or ordered, if no received quantity is recorded) minus what earlier invoices on the same PO already billed. If either side has no quantity the check says "not checked" and the amount checks still apply.
+- The 2% amount tolerance and the 0.8 confidence threshold are tunable defaults.
 - Tax is not stored, only the invoice total. Invoices are read in English only.
 - Seeding: `python -m backend.seed` erases every table. It refuses unless the database name contains `dev`, `demo`, `test` or `eval`, or you set `ALLOW_SEED=1` on purpose.
-- One shared PayPal business account sends every company's payouts.
 - Extraction quality depends on the AI model; see `docs/ai-results.md`. If the AI is unavailable the invoice is held, never approved.
 
 ## When the AI is slow or down
@@ -224,7 +229,7 @@ Every Gemini call waits 2 s and 5 s between tries, then switches to `GEMINI_FALL
 
 ## Console
 
-A read-mostly web console for the review queue, invoices, payments and ledger, exceptions and the audit timeline. It is one static file (`console/index.html`, AG Grid from a CDN), no build step.
+A web console for the review queue, invoices, payments and ledger, exceptions, the audit timeline and uploads. Static pages, no build step (AG Grid from a CDN): `index.html` (invoices, review, payments, exceptions, audit, upload), `vendors.html` (vendors and POs), `team.html`, `account.html`, `company.html`, `paypal.html`, `login.html`, plus `pm.js`.
 
 **The demo runs locally.** The API runs on port 8000 and the console on port 5500, the only origin the API's CORS setting allows.
 
@@ -236,6 +241,8 @@ cd console; python -m http.server 5500          # terminal 2
 Open http://localhost:5500 and log in. The session is an HttpOnly cookie: page scripts never see it, and it is sent with an `X-CSRF` header on every change. Set `CONSOLE_ORIGINS` in `.env` to the exact origin(s) the console is served from; `*` is refused. Viewers do not see buttons they cannot use, and the server refuses those calls anyway. Admins manage people, roles and the automatic payment limit on the Team page; everyone can change their own password on the My account page.
 
 Read-only endpoints behind the console (any logged-in member of the company): `GET /invoices`, `GET /payments`, `GET /payments/{id}` (settlement, ledger rows and a balanced check), `GET /ledger`, `GET /audit/{invoice_id}` (full timeline; the invoice number also works), `GET /summary`.
+
+Other endpoints (same login): `POST /upload`, `/vendors`, `/pos`, `/deliveries` (vendors, purchase orders, deliveries, attachments), `POST /chat`, `GET /advise`, `GET /attention`, `/changes` (approve or reject a pending change) and `/admin` (people and settings, admin only).
 
 
 ## Webhooks
@@ -316,3 +323,10 @@ Audit log (every decision, with the reason):
 ```powershell
 docker exec -i paymaster-db psql -U paymaster -d paymaster -c "SELECT created_at, stage, decision, reason FROM audit_log ORDER BY created_at;"
 ```
+
+## More docs
+
+- `docs/reconcile.md`, `docs/ai-results.md`, `docs/fraud-signals.md`
+- `sandbox-findings.md`: PayPal sandbox notes
+- Tests (use a test database): `python -m tests.test_bugfixes`, `python tests/test_hardening.py`
+- License: MIT (see `LICENSE`)
