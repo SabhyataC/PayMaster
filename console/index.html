@@ -548,6 +548,7 @@
                 mk("Reject", () => decide(id, "reject"));
             } else {
                 mk("Pay", () => payInvoice(id, p.data));
+                if (PM.canAct()) mk("Reject", () => decide(id, "reject"));
             }
             return box;
         }
@@ -639,7 +640,23 @@
                 });
                 box.appendChild(rv);
             }
+            if (PM.canAct() && (p.data.status === "held" || p.data.status === "approved")) {
+                const cx = document.createElement("button");
+                cx.textContent = "Cancel"; cx.style.marginLeft = "6px";
+                cx.addEventListener("click", async () => {
+                    const note = prompt("Why are you cancelling this invoice? (at least 10 characters)");
+                    if (!note) return;
+                    const r = await fetch(`${API}/review/${p.data.id}/decision`, {
+                        method: "POST", headers: hdr(),
+                        body: JSON.stringify({ decision: "reject", note, confirmed_with_vendor: false }),
+                    });
+                    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(errText(e)); }
+                    loadInvoices(); loadAttention();
+                });
+                box.appendChild(cx);
+            }
             return box;
+
         }
 
         const iApi = agGrid.createGrid($("igrid"), {
@@ -660,14 +677,21 @@
         document.addEventListener("click", async ev => {
             const b = ev.target.closest && ev.target.closest(".attn-act");
             if (!b) return;
+            const act = b.dataset.act, eid = encodeURIComponent(b.dataset.id);
+            let opts = { method: "POST" };
+            if (act === "delete") {
+                const reason = prompt("Why are you deleting this upload? (at least 10 characters)");
+                if (!reason) return;
+                opts = { method: "POST", headers: hdr(), body: JSON.stringify({ reason }) };
+            }
             b.disabled = true; b.textContent = "Working...";
-            const url = b.dataset.act === "reverify"
-                ? `${API}/invoices/${encodeURIComponent(b.dataset.id)}/reverify`
-                : `${API}/extractions/${encodeURIComponent(b.dataset.id)}/retry`;
+            const url = act === "reverify" ? `${API}/invoices/${eid}/reverify`
+                : act === "delete" ? `${API}/extractions/${eid}/delete`
+                : `${API}/extractions/${eid}/retry`;
             try {
-                const r = await fetch(url, { method: "POST" });
+                const r = await fetch(url, opts);
                 const d = await r.json().catch(() => ({}));
-                if (!r.ok) alert(d.detail || "Could not do that");
+                if (!r.ok) alert(typeof d.detail === "string" ? d.detail : "Could not do that");
             } catch (err) { alert("Could not reach the server"); }
             loadAttention(); if (typeof loadQueue === "function") loadQueue();
         });
@@ -683,7 +707,7 @@
                     ? `<div style="margin:6px 0"><b>${title} (${rows.length})</b><ul style="margin:4px 0 0 18px;padding:0">${rows.map(x => `<li>${fmt(x)} <span style="color:#6b6a63">· ${x.days}d</span></li>`).join("")}</ul></div>` : "";
                 const html =
                     sec("Waiting for a delivery to be recorded", d.waiting_delivery, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}, ${e(x.po)} delivered ${x.delivered} <button class="attn-act" data-act="reverify" data-id="${e(x.id)}">Re-verify</button>`) +
-                    sec("Documents waiting for a vendor or PO", d.needs_fix, x => `${e(x.file)}: ${e(x.reason)} <button class="attn-act" data-act="retry" data-id="${e(x.id)}">Retry</button>`) +
+                    sec("Documents waiting for a vendor or PO", d.needs_fix, x => `${e(x.file)}: ${e(x.reason)} <button class="attn-act" data-act="retry" data-id="${e(x.id)}">Retry</button> <button class="attn-act" data-act="delete" data-id="${e(x.id)}">Delete</button>`) + +
                     sec("Approved, ready for a person to pay", d.ready_to_pay, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`) +
                     sec("Delivered, no invoice yet", d.delivered_no_invoice, x => `${e(x.po)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`);
                 box.innerHTML = `<b style="color:${d.total ? "#b4531a" : "#0b6b4f"}">Needs attention: ${d.total}</b>` + (html || `<div style="color:#6b6a63">Nothing is waiting.</div>`);

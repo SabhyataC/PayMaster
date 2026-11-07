@@ -670,3 +670,23 @@ CREATE TABLE IF NOT EXISTS pending_changes (
 CREATE UNIQUE INDEX IF NOT EXISTS pending_one_per_target ON pending_changes (kind, target_id)
 WHERE
     status = 'pending';
+
+ALTER TABLE vendors
+ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    company_id UUID NOT NULL REFERENCES companies (id),
+    entity_type TEXT NOT NULL CHECK (
+        entity_type IN ('purchase_order', 'delivery')
+    ),
+    entity_id UUID NOT NULL,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    data BYTEA NOT NULL,
+    uploaded_by UUID REFERENCES users (id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments (entity_type, entity_id);

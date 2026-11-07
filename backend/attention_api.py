@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.auth import current_member, reviewer_or_admin
 from backend.reprocess import retry_extraction, reverify_invoice
 from backend.db import get_conn
+from pydantic import BaseModel, Field
+from backend.audit import log_decision
 
 router = APIRouter(tags=["attention"])
 
@@ -31,7 +33,7 @@ def attention(user: dict = Depends(current_member)):
             """SELECT i.id, i.invoice_number, v.name, i.amount, i.currency,
                       EXTRACT(DAY FROM now() - i.received_at)::int
                FROM invoices i JOIN vendors v ON v.id = i.vendor_id
-                HERE i.company_id = %s AND i.status = 'approved'
+                WHERE i.company_id = %s AND i.status = 'approved'
                  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.invoice_id = i.id AND p.status = 'failed')
                ORDER BY i.received_at""", (cid,)).fetchall()
 
@@ -39,7 +41,7 @@ def attention(user: dict = Depends(current_member)):
             """SELECT po.id, po.po_number, v.name, po.amount, po.currency,
                       EXTRACT(DAY FROM now() - (SELECT MAX(d.received_at) FROM deliveries d WHERE d.po_id = po.id))::int
                FROM purchase_orders po JOIN vendors v ON v.id = po.vendor_id
-               WHERE po.company_id = %s
+                WHERE po.company_id = %s AND po.status <> 'cancelled'
                  AND COALESCE((SELECT SUM(d.amount) FROM deliveries d WHERE d.po_id = po.id), 0) >= po.amount
                  AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.po_id = po.id)
                ORDER BY po.created_at""", (cid,)).fetchall()
@@ -77,3 +79,25 @@ def retry(extraction_id: str, user: dict = Depends(reviewer_or_admin)):
         raise HTTPException(404, "Upload not found")
     except ValueError as e:
         raise HTTPException(409, str(e))
+
+
+class ReasonIn(BaseModel):
+    reason: str = Field(min_length=10, max_length=300)
+
+
+@router.post("/extractions/{extraction_id}/delete")
+def delete_extraction(extraction_id: str, body: ReasonIn, user: dict = Depends(reviewer_or_admin)):
+    """Delete an upload that is stuck in needs_review. No invoice exists for it yet, so nothing else changes."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, source_name FROM extractions "
+            "WHERE id::text = %s AND company_id = %s AND status = 'needs_review' FOR UPDATE",
+            (extraction_id, user["company_id"])).fetchone()
+        if not row:
+            raise HTTPException(404, "Upload not found, or it is no longer waiting for review")
+        conn.execute("DELETE FROM extractions WHERE id = %s", (row[0],))
+        log_decision(conn, stage="intake", entity_type="extraction", entity_id=row[0], decision="upload_deleted",
+                     reason=f"{user['full_name']} deleted upload {row[1]}: {body.reason.strip()}",
+                     inputs={"by": user["id"], "source_name": row[1]}, actor="human",
+                     company_id=user["company_id"])
+    return {"ok": True}

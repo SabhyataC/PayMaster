@@ -104,7 +104,8 @@ def get_po(po_number):
                   po.amount, po.currency, po.status, po.quantity
            FROM purchase_orders po
            JOIN vendors v ON v.id = po.vendor_id
-           WHERE po.po_number = %s AND po.company_id = %s AND v.company_id = po.company_id""",
+            WHERE po.po_number = %s AND po.company_id = %s AND v.company_id = po.company_id
+             AND po.status <> 'cancelled'""",
         (normalize_po_number(po_number), current_tenant()),
     )
     return rows[0] if rows else None
