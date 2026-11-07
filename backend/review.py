@@ -26,8 +26,18 @@ class ReviewError(Exception):
 
 
 def assert_not_own_upload(conn, invoice_id, user_id):
-    """Four eyes is switched off: the uploader may approve and release their own invoice."""
-    return
+    """Four eyes: the person who uploaded an invoice cannot also approve or release it. This holds
+    even in a one-person company, which must switch the rule off on the Team page (admin only,
+    audited) to approve its own uploads."""
+    if not user_id:
+        return
+    row = conn.execute("SELECT uploaded_by, company_id FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+    if row is None or row[0] is None or str(row[0]) != str(user_id):
+        return
+    on = conn.execute("SELECT require_four_eyes FROM companies WHERE id = %s", (row[1],)).fetchone()
+    if on is not None and on[0] is False:
+        return
+    raise ReviewError("self_approval", "You uploaded this invoice, so someone else must approve or release it")
 
 
 def _uuid(value):

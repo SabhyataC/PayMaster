@@ -690,3 +690,6 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments (entity_type, entity_id);
+
+-- Four-eyes rule: ON by default. A company may switch it off (admin, audited), e.g. a one-person demo.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS require_four_eyes BOOLEAN NOT NULL DEFAULT TRUE;
