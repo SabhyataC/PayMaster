@@ -285,6 +285,7 @@
 
             <section class="view active" id="v-overview">
                 <div id="cards"></div>
+                <div id="analytics"></div>
                 <div id="attn"></div>
             </section>
 
@@ -351,6 +352,7 @@
 
     <script src="pm.js"></script>
     <script src="ui.js"></script>
+    <script src="overview.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
@@ -848,6 +850,7 @@
                 const r = await fetch(`${API}/summary`, { headers: hdr() });
                 if (!r.ok) { $("cards").innerHTML = `<i>Summary unavailable (error ${r.status})</i>`; return; }
                 $("cards").innerHTML = renderCards(await r.json());
+                if (window.PMOverview) PMOverview.load(API, hdr);
             } catch (e) { $("cards").innerHTML = "<i>Summary unavailable: cannot reach the API</i>"; }
         }
 
