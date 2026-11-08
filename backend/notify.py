@@ -65,13 +65,18 @@ def emit(conn, company_id, event, subject, body, dedupe_key):
     """Queue one alert, in the caller's transaction. Does nothing if the company has alerts off."""
     if company_id is None or event not in EVENTS:
         return False
-    row = conn.execute("SELECT enabled, events FROM notification_settings WHERE company_id = %s", (company_id,)).fetchone()
-    if not row or not row[0] or event not in (row[1] or []):
+    try:
+        with conn.transaction():   # a savepoint: if the alert tables are missing, the money work is not aborted
+            row = conn.execute("SELECT enabled, events FROM notification_settings WHERE company_id = %s", (company_id,)).fetchone()
+            if not row or not row[0] or event not in (row[1] or []):
+                return False
+            cur = conn.execute(
+                "INSERT INTO notification_outbox (company_id, event, subject, body, dedupe_key) VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (company_id, dedupe_key) DO NOTHING", (company_id, event, subject[:150], body[:900], dedupe_key))
+            return cur.rowcount == 1
+    except Exception as e:
+        print("ALERT QUEUE FAILED:", type(e).__name__)
         return False
-    cur = conn.execute(
-        "INSERT INTO notification_outbox (company_id, event, subject, body, dedupe_key) VALUES (%s, %s, %s, %s, %s) "
-        "ON CONFLICT (company_id, dedupe_key) DO NOTHING", (company_id, event, subject[:150], body[:900], dedupe_key))
-    return cur.rowcount == 1
 
 
 def emit_invoice_held(conn, invoice_id, reasons):
