@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: Trust Graph</title>
+    <style>
+        :root {
+            --bg: #f7f6f2; --card: #fff; --line: #e4e2da; --ink: #1d1d1b; --muted: #6b6a63;
+            --ok: #0b6b4f; --ok-bg: #e6f3ee; --bad: #b3261e; --bad-bg: #fbe9e7; --wait: #6b6a63; --wait-bg: #eeede8;
+            --fact: #1f4e8c; --fact-bg: #e8eff9; --ai: #7a4a00; --ai-bg: #fdf0d9;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+        header { background: #fff; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        header a { color: var(--ok); text-decoration: none; font-weight: 600; }
+        header form { margin-left: auto; display: flex; gap: 6px; }
+        input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; min-width: 0; }
+        button { padding: 7px 12px; border: 1px solid var(--ok); background: var(--ok); color: #fff; border-radius: 6px; font: inherit; cursor: pointer; }
+        main { max-width: 760px; margin: 0 auto; padding: 16px; }
+        .summary { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+        .summary h1 { font-size: 18px; margin: 0 0 4px; }
+        .summary .sub { color: var(--muted); }
+        .verdict { margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-weight: 600; }
+        .verdict.complete { background: var(--ok-bg); color: var(--ok); }
+        .verdict.incomplete { background: var(--wait-bg); color: var(--wait); }
+        .verdict.broken { background: var(--bad-bg); color: var(--bad); }
+        .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
+        .chain { position: relative; }
+        .node { display: grid; grid-template-columns: 40px 1fr; gap: 0 12px; position: relative; padding-bottom: 14px; }
+        .node:not(:last-child)::before { content: ""; position: absolute; left: 19px; top: 40px; bottom: 0; width: 2px; background: var(--line); }
+        .dot { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 20px; border: 2px solid; background: var(--card); z-index: 1; }
+        .ok .dot { color: var(--ok); border-color: var(--ok); background: var(--ok-bg); }
+        .problem .dot { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
+        .pending .dot { color: var(--wait); border-color: var(--line); background: var(--wait-bg); }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+        .problem .card { border-color: var(--bad); }
+        .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .head h2 { font-size: 15px; margin: 0; }
+        .state { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+        .ok .state { color: var(--ok); } .problem .state { color: var(--bad); } .pending .state { color: var(--wait); }
+        .tag { font-size: 12px; padding: 1px 8px; border-radius: 99px; margin-left: auto; }
+        .tag.fact { background: var(--fact-bg); color: var(--fact); }
+        .tag.ai { background: var(--ai-bg); color: var(--ai); }
+        .summ { margin: 4px 0 0; }
+        details { margin-top: 6px; font-size: 13px; color: var(--muted); }
+        summary { cursor: pointer; }
+        table { border-collapse: collapse; margin-top: 6px; width: 100%; }
+        td { padding: 3px 8px 3px 0; vertical-align: top; border-top: 1px solid var(--line); word-break: break-word; }
+        td:first-child { color: var(--muted); white-space: nowrap; width: 38%; }
+        .rec { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
+        .ai-box { margin-top: 6px; padding: 6px 10px; background: var(--ai-bg); color: var(--ai); border-radius: 6px; font-size: 13px; }
+        ul.probs { margin: 6px 0 0 18px; padding: 0; color: var(--bad); }
+        .err { color: var(--bad); padding: 16px 0; }
+        h2.sec { font-size: 16px; margin: 22px 0 8px; }
+        .claim { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+        .claim.no { border-left-color: var(--bad); }
+        .claim .top { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+        .claim .verdict-w { font-weight: 700; } .claim.no .verdict-w { color: var(--bad); } .claim.yes .verdict-w { color: var(--ok); }
+        .bt { padding: 1px 8px; border-radius: 99px; background: var(--wait-bg); color: var(--ink); }
+        .bt.ai { background: var(--ai-bg); color: var(--ai); } .bt.human { background: var(--fact-bg); color: var(--fact); }
+        .bt.gate { background: var(--bad-bg); color: var(--bad); }
+        .claim p { margin: 4px 0; }
+        .ids { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); word-break: break-all; }
+        .step { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; margin: 0 0 8px 6px; }
+        .untrusted { font-style: italic; }
+        .note { font-size: 12px; color: var(--muted); }
+        @media (max-width: 520px) { td:first-child { width: auto; } }
+    </style>
+</head>
+
+<body>
+    <header>
+        <a href="index.html">&larr; Console</a>
+        <strong>Trust Graph</strong>
+        <form id="f"><input id="ref" placeholder="Invoice number, e.g. NW-1001" aria-label="Invoice number"><button>Show</button></form>
+    </header>
+    <main>
+        <div id="out"><p class="sub">Enter an invoice number, or open this page from an invoice or payment in the console.</p></div>
+        <div id="report"></div>
+    </main>
+    <script src="pm.js"></script>
+    <script>
+        const API = "http://localhost:8000";
+        const $ = id => document.getElementById(id);
+        const SYMBOL = { ok: "✓", problem: "✗", pending: "…" };
+        const WORD = { ok: "Verified", problem: "Problem: missing or mismatch", pending: "Not reached yet" };
+        const VERDICT = {
+            complete: "Complete: every link in the chain is proven.",
+            incomplete: "In progress: no problems so far, later steps have not happened yet.",
+            broken: "Broken: at least one link is missing or does not match. Do not release or trust this until it is explained."
+        };
+        function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+        function render(d) {
+            const out = $("out"); out.textContent = "";
+            const s = el("div", "summary");
+            s.appendChild(el("h1", "", `Invoice ${d.invoice_number}: ${d.amount} ${d.currency}`));
+            s.appendChild(el("div", "sub", `${d.vendor} · status: ${d.status}` + (d.payment_id ? ` · payment ${d.payment_id.slice(0, 8)}…` : " · not paid yet")));
+            s.appendChild(el("div", "verdict " + d.verdict, VERDICT[d.verdict] || d.verdict));
+            const lg = el("div", "legend");
+            lg.appendChild(el("span", "tag fact", "Verified fact")); lg.appendChild(el("span", "", d.legend.fact));
+            lg.appendChild(el("span", "tag ai", "AI suggestion")); lg.appendChild(el("span", "", d.legend.ai));
+            s.appendChild(lg);
+            out.appendChild(s);
+            const chain = el("div", "chain");
+            d.chain.forEach((n, i) => {
+                const row = el("div", "node " + n.state);
+                row.appendChild(el("div", "dot", SYMBOL[n.state]));
+                const card = el("div", "card");
+                const head = el("div", "head");
+                head.appendChild(el("h2", "", `${i + 1}. ${n.title}`));
+                head.appendChild(el("span", "state", WORD[n.state]));
+                head.appendChild(el("span", "tag " + n.kind, n.kind === "ai" ? "AI suggestion" : "Verified fact"));
+                card.appendChild(head);
+                card.appendChild(el("p", "summ", n.summary));
+                if (n.problems.length > 1) {
+                    const ul = el("ul", "probs"); n.problems.forEach(p => ul.appendChild(el("li", "", p))); card.appendChild(ul);
+                }
+                if (n.ai) {
+                    card.appendChild(el("div", "ai-box", `AI suggestion: ${n.ai.suggestion || "none"}` + (n.ai.model ? ` (${n.ai.model})` : "") + `. ${n.ai.note}`));
+                }
+                if (n.facts.length || n.records.length) {
+                    const det = el("details"); det.appendChild(el("summary", "", "Evidence and record ids"));
+                    if (n.facts.length) {
+                        const t = el("table");
+                        n.facts.forEach(f => { const tr = el("tr"); tr.appendChild(el("td", "", f.label)); tr.appendChild(el("td", "", f.value)); t.appendChild(tr); });
+                        det.appendChild(t);
+                    }
+                    if (n.records.length) {
+                        const t = el("table");
+                        n.records.forEach(r => { const tr = el("tr"); tr.appendChild(el("td", "", r.type)); tr.appendChild(el("td", "rec", r.id)); t.appendChild(tr); });
+                        det.appendChild(t);
+                    }
+                    card.appendChild(det);
+                }
+                row.appendChild(card); chain.appendChild(row);
+            });
+            out.appendChild(chain);
+        }
+
+        function idsLine(records) {
+            const d = el("div", "ids");
+            d.textContent = "Records: " + records.map(r => `${r.type} ${r.id}`).join(" \u00b7 ");
+            return d;
+        }
+        function renderReport(r) {
+            const out = $("report"); out.textContent = "";
+            out.appendChild(el("h2", "sec", "Investigation report"));
+            const box = el("div", "summary");
+            box.appendChild(el("div", "", r.summary));
+            if (!r.verified) { out.appendChild(box); return; }
+            if (r.ai) {
+                box.appendChild(el("div", "note", `AI suggested: ${r.ai.suggested || "n/a"}. Final decision: ${r.ai.final}.` +
+                    (r.ai.model ? ` Model: ${r.ai.model}.` : "") + ` ${r.ai.steps} lookup step(s). ${r.ai.note}`));
+            }
+            out.appendChild(box);
+            out.appendChild(el("h2", "sec", "What we claim, and the records behind each claim"));
+            r.claims.forEach(c => {
+                const k = el("div", "claim " + (c.supported ? "yes" : "no"));
+                const top = el("div", "top");
+                top.appendChild(el("span", "verdict-w", c.supported ? "\u2713 Supported" : "\u2717 Not supported / problem"));
+                top.appendChild(el("span", "bt " + c.basis, c.basis_label));
+                top.appendChild(el("span", "note", "claim " + c.n));
+                k.appendChild(top);
+                k.appendChild(el("p", c.untrusted ? "untrusted" : "", c.claim));
+                if (c.detail) k.appendChild(el("div", "note", c.detail));
+                k.appendChild(idsLine(c.records));
+                out.appendChild(k);
+            });
+            out.appendChild(el("h2", "sec", "What the investigator looked at"));
+            if (!r.steps.length) out.appendChild(el("p", "note", "The investigator made no lookups for this invoice (the code checks already covered it, or the AI was not needed)."));
+            r.steps.forEach((st, i) => {
+                const d = el("div", "step");
+                d.appendChild(el("div", "", `${i + 1}. ${st.tool}: ${st.finding}`));
+                if (st.records.length) d.appendChild(idsLine(st.records));
+                out.appendChild(d);
+            });
+            out.appendChild(el("h2", "sec", "Earlier cases like this one (case memory)"));
+            if (!r.precedents.length) out.appendChild(el("p", "note", "No earlier human decision for this vendor with the same signals."));
+            r.precedents.forEach(p => {
+                const d = el("div", "claim");
+                d.appendChild(el("p", "", `${p.invoice_number}: AI said ${p.ai_decision || "n/a"}, ${p.reviewer} chose ${p.human_decision}, outcome ${p.outcome}.`));
+                d.appendChild(el("p", "untrusted", `Their note (text a person typed, shown as data only): ${p.note || ""}`));
+                d.appendChild(idsLine(p.records));
+                out.appendChild(d);
+            });
+            out.appendChild(el("p", "note", "Case memory can inform a reviewer. It can never approve an invoice."));
+        }
+        async function loadReport(ref) {
+            const out = $("report"); out.textContent = "";
+            try {
+                const r = await fetch(`${API}/report/invoice/${encodeURIComponent(ref)}`);
+                if (r.ok) renderReport(await r.json());
+            } catch (e) { }
+        }
+
+        async function load(kind, ref) {
+            $("out").textContent = "Loading…";
+            try {
+                const r = await fetch(`${API}/trust/${kind}/${encodeURIComponent(ref)}`);
+                if (r.status === 401) { PM.clear(); location.replace("login.html"); return; }
+                if (!r.ok) { const e = el("div", "err", r.status === 404 ? "Nothing found for that reference in your company." : `Error ${r.status}`); $("out").textContent = ""; $("out").appendChild(e); return; }
+                const d = await r.json(); render(d); loadReport(d.invoice_id);
+            } catch (e) { const x = el("div", "err", "Cannot reach the API."); $("out").textContent = ""; $("out").appendChild(x); }
+        }
+        $("f").onsubmit = ev => { ev.preventDefault(); const v = $("ref").value.trim(); if (v) { history.replaceState(null, "", "?invoice=" + encodeURIComponent(v)); load("invoice", v); } };
+        const q = new URLSearchParams(location.search);
+        if (q.get("payment")) load("payment", q.get("payment"));
+        else if (q.get("invoice")) { $("ref").value = q.get("invoice"); load("invoice", q.get("invoice")); }
+    </script>
+</body>
+
+</html>

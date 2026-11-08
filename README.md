@@ -145,6 +145,20 @@ python -m scripts.adversarial_eval --sleep 8 --out adv_real.csv   # same on the 
 
 Results, what failed along the way and the limits of this test are in `docs/ai-results.md`.
 
+### Results (synthetic, self-written data)
+
+Positive = "this invoice is bad and must not be paid". A false negative is a bad invoice approved (the dangerous kind). A false positive is a clean invoice held for a person to look at (costs time, not money). All invoices are SYNTHETIC and written by the authors, so these numbers show the gates work on cases we thought of. They are not a claim about real-world accuracy.
+
+| Run | Invoices | Precision | Recall | False positives | False negatives |
+|---|---|---|---|---|---|
+| Dev set, code only (`--stub-ai`, AI replaced by a stub that always approves) | 46 | 100.0% | 100.0% | 0 | 0 |
+| Adversarial set, code only (`--stub-ai`, seed 2026) | 60 | 100.0% | 100.0% | 0 | 0 |
+| Dev set, real Gemini | 46 | _fill in from `python -m scripts.eval --sleep 15`_ | | | |
+| Adversarial set, real Gemini | 60 | _fill in from `python -m scripts.adversarial_eval --sleep 8`_ | | | |
+
+The code-only rows are the important ones: they show that even when the AI is wrong or hostile, the hard checks and fraud gates stop every bad invoice in these sets. Each run prints its own row in this format.
+
+
 
 ## Fix documents that need review
 
@@ -222,6 +236,14 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 - Tax is not stored, only the invoice total. Invoices are read in English only.
 - Seeding: `python -m backend.seed` erases every table. It refuses unless the database name contains `dev`, `demo`, `test` or `eval`, or you set `ALLOW_SEED=1` on purpose.
 - Extraction quality depends on the AI model; see `docs/ai-results.md`. If the AI is unavailable the invoice is held, never approved.
+
+## Investigation report
+
+Open an invoice's Trust graph page: below the chain it shows an investigation report from `GET /report/invoice/{id}`. Every claim says what kind of basis it has (code check, fraud signal, AI opinion, code overruled the AI, a person's decision) and lists the record ids it rests on. It also lists each lookup the investigator made and the earlier human cases (case memory) it found. Text written by people or the AI is shown as data, never as instructions. Case memory can inform a reviewer, it can never approve anything.
+
+## Trust Graph
+
+Every invoice and payment has an evidence chain: Vendor, Invoice, PO, Delivery, Approval, Payout, PayPal webhook, Ledger, Reconcile. Open it from the "Trust graph" link on an invoice, a review-queue row or a payment (`console/trust.html`, API `GET /trust/invoice/{ref}` and `GET /trust/payment/{id}`). Each link is green (verified), red (missing or mismatch, with the reason in words) or grey (not reached yet), lists the record ids behind it, and is tagged "Verified fact" (our database, checked by code) or "AI suggestion" (read or suggested by Gemini). It only reads recorded data; it never asks an AI anything and never changes anything. A successful payout with no webhook after 10 minutes is shown red.
 
 ## When the AI is slow or down
 

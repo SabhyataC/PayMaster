@@ -142,6 +142,18 @@
             margin-bottom: 16px;
         }
 
+        #cards .nextstep {
+            grid-column: 1 / -1; background: #fff4e5; border: 1px solid #f3d3a4; color: #7a4a00;
+            border-radius: 10px; padding: 10px 14px; font-weight: 600;
+        }
+        #cards .nextstep.ok { background: #e6f3ee; border-color: #b8dccd; color: #0b6b4f; }
+        .kpi { background: #fff; border: 1px solid #e4e2da; border-left: 4px solid #0b6b4f; border-radius: 12px; padding: 14px 16px; }
+        .kpi.go { cursor: pointer; }
+        .kpi.go:hover, .kpi.go:focus { border-color: #0b6b4f; outline: none; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+        .kpi-t { font-size: 12px; color: #6b6a63; text-transform: uppercase; letter-spacing: .05em; }
+        .kpi-n { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .kpi-h { font-size: 12px; color: #6b6a63; margin-top: 2px; }
+
         #attn {
             background: #fff;
             border: 1px solid var(--line);
@@ -397,7 +409,7 @@
                 { field: "created_at", width: 200 },
                 { headerName: "Detail", valueGetter: (p) => JSON.stringify(p.data.detail), flex: 1 },
                 { headerName: "AI explanation", valueGetter: (p) => p.data.explanation ? p.data.explanation.explanation : "", flex: 2 },
-                { headerName: "Actions", width: 260, sortable: false, filter: false, cellRenderer: actionsCell },
+                { headerName: "Actions", width: 340, sortable: false, filter: false, cellRenderer: actionsCell },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
@@ -514,7 +526,7 @@
                 { field: "status", width: 120, cellRenderer: badge },
                 { field: "stage", width: 120 },
                 { headerName: "Why", valueGetter: (p) => (p.data.reasons || []).join(", "), flex: 1 },
-                { headerName: "Actions", width: 270, sortable: false, filter: false, cellRenderer: queueActions },
+                { headerName: "Actions", width: 380, sortable: false, filter: false, cellRenderer: queueActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
@@ -543,6 +555,7 @@
             };
             const id = p.data.invoice_id;
             mk("Audit", (ev) => { ev.stopPropagation(); showAudit(id); });
+            mk("Trust graph", (ev) => { ev.stopPropagation(); location.href = "trust.html?invoice=" + encodeURIComponent(id); });
             if (PM.canAct() && p.data.status === "held") {
                 mk("Approve", () => decide(id, "approve"));
                 mk("Reject", () => decide(id, "reject"));
@@ -614,10 +627,18 @@
             success: "#2e7d32", submitted: "#ed6c02", pending: "#ed6c02", unclaimed: "#c62828", failed: "#c62828", unknown: "#c62828",
             open: "#ed6c02", resolved: "#2e7d32", returned: "#6a1b9a"
         };
+        // Plain words for people; the stored value (used for sorting and filters) is unchanged.
+        const LABEL = {
+            received: "Received", approved: "Approved", held: "Waiting for a person", rejected: "Rejected",
+            paid: "Paid", needs_review: "Needs a fix", success: "Paid out", submitted: "Sent to PayPal",
+            pending: "Pending", unclaimed: "Unclaimed by vendor", failed: "Failed", unknown: "Unknown, check PayPal",
+            open: "Open", resolved: "Resolved", returned: "Returned", created: "Created"
+        };
         function badge(p) {
             const c = BADGE[p.value] || "#777777";
             const s = document.createElement("span");
-            s.textContent = p.value || "";
+            s.textContent = LABEL[p.value] || p.value || "";
+            s.title = p.value || "";
             s.style.cssText = `background:${c}1a;color:${c};padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600`;
             return s;
         }
@@ -627,6 +648,10 @@
             au.textContent = "Audit"; au.style.marginRight = "6px";
             au.addEventListener("click", () => showAudit(p.data.id));
             box.appendChild(au);
+            const tg = document.createElement("a");   // Trust Graph: the evidence chain for this invoice
+            tg.textContent = "Trust graph"; tg.href = "trust.html?invoice=" + encodeURIComponent(p.data.id);
+            tg.style.marginRight = "6px";
+            box.appendChild(tg);
             if (PM.canAct() && p.data.status === "approved") {
                 const b = document.createElement("button");
                 b.textContent = "Pay";
@@ -679,7 +704,7 @@
                 { field: "why", headerName: "Why held", flex: 2, minWidth: 260, tooltipField: "why" },
                 { field: "fraud_risk", headerName: "Fraud risk", width: 120 },
                 { field: "received_at", headerName: "Received", flex: 1 },
-                { headerName: "Actions", width: 260, sortable: false, filter: false, cellRenderer: invoiceActions },
+                { headerName: "Actions", width: 340, sortable: false, filter: false, cellRenderer: invoiceActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
             rowData: [],
@@ -781,21 +806,39 @@
         });
 
         // ---- Summary cards ----
-        function card(title, body, warn) {
-            return `<div style="background:#fff;border:1px solid #e4e2da;border-left:4px solid ${warn ? "#ed6c02" : "#0b6b4f"};border-radius:12px;padding:14px 16px">
-        <div style="font-size:11px;color:#6b6a63;text-transform:uppercase;letter-spacing:.05em">${esc(title)}</div>
-        <div style="font-size:26px;font-weight:700;margin-top:4px">${body}</div></div>`;
+        function card(title, body, warn, hint, go) {
+            return `<div class="kpi${go ? " go" : ""}" ${go ? `data-go="${esc(go)}" tabindex="0" role="link"` : ""} style="border-left-color:${warn ? "#ed6c02" : "#0b6b4f"}">
+        <div class="kpi-t">${esc(title)}</div>
+        <div class="kpi-n">${body}</div>${hint ? `<div class="kpi-h">${esc(hint)}</div>` : ""}</div>`;
         }
         function renderCards(s) {
-            const byStatus = Object.entries(s.invoices_by_status).map(([k, n]) => `${esc(k)} ${n}`).join(", ") || "none yet";
+            const st = s.invoices_by_status || {};
+            const plain = Object.entries(st).map(([k, n]) => `${esc(LABEL[k] || k)}: ${n}`).join(" \u00b7 ") || "none yet";
             const paid = Object.entries(s.paid_total)
-                .map(([c, t]) => `${Number(t).toLocaleString(undefined, { minimumFractionDigits: 2 })} ${esc(c)}`).join("<br>") || "0";
-            return card("Invoices", `${s.invoices_total}<div style="font-size:12px;font-weight:400">${byStatus}</div>`)
-                + card("Held for a person", s.held_count, s.held_count > 0)
-                + card("Paid total", paid)
-                + card("Open exceptions", s.open_exceptions, s.open_exceptions > 0)
-                + card("Documents to fix", s.needs_review_documents, s.needs_review_documents > 0);
+                .map(([c, t]) => `${Number(t).toLocaleString(undefined, { minimumFractionDigits: 2 })} <span style="font-size:14px;font-weight:500">${esc(c)}</span>`).join("<br>") || "0";
+            const need = (s.held_count || 0) + (s.open_exceptions || 0) + (s.needs_review_documents || 0);
+            const next = need === 0
+                ? `<div class="nextstep ok">\u2713 Nothing needs you right now.</div>`
+                : `<div class="nextstep">${need} thing${need === 1 ? "" : "s"} need${need === 1 ? "s" : ""} a person: `
+                + [s.held_count ? `${s.held_count} invoice${s.held_count === 1 ? "" : "s"} to decide` : "",
+                   s.open_exceptions ? `${s.open_exceptions} payment problem${s.open_exceptions === 1 ? "" : "s"}` : "",
+                   s.needs_review_documents ? `${s.needs_review_documents} document${s.needs_review_documents === 1 ? "" : "s"} to fix` : ""]
+                    .filter(Boolean).join(", ") + ".</div>";
+            return next
+                + card("Waiting for a person", s.held_count, s.held_count > 0, s.held_count ? "Open the review queue" : "All decided", "review")
+                + card("Approved, ready to pay", st.approved || 0, (st.approved || 0) > 0, "See invoices", "invoices")
+                + card("Paid so far", paid, false, "Payments and ledger", "payments")
+                + card("Payment problems", s.open_exceptions, s.open_exceptions > 0, s.open_exceptions ? "Open exceptions" : "None", "exceptions")
+                + card("Documents to fix", s.needs_review_documents, s.needs_review_documents > 0, "Could not be read safely", "invoices")
+                + card("All invoices", s.invoices_total, false, plain, "invoices");
         }
+        document.addEventListener("click", (ev) => {
+            const k = ev.target.closest && ev.target.closest(".kpi.go");
+            if (k) { history.replaceState(null, "", "#" + k.dataset.go); showView(k.dataset.go); }
+        });
+        document.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" && ev.target.classList && ev.target.classList.contains("go")) ev.target.click();
+        });
         async function loadSummary() {
             try {
                 const r = await fetch(`${API}/summary`, { headers: hdr() });
@@ -866,6 +909,12 @@
                 { field: "currency", width: 100 },
                 { field: "status", width: 130, cellRenderer: badge },
                 { field: "paypal_batch_id", headerName: "PayPal batch", width: 170 },
+                { headerName: "Evidence", width: 130, sortable: false, filter: false, cellRenderer: (p) => {
+                    const a = document.createElement("a");
+                    a.textContent = "Trust graph"; a.href = "trust.html?payment=" + encodeURIComponent(p.data.id);
+                    a.addEventListener("click", (ev) => ev.stopPropagation());
+                    return a;
+                } },
                 { field: "created_at", headerName: "Created", flex: 1 },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },

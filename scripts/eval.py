@@ -99,6 +99,22 @@ def summarize(results):
     }
 
 
+def metrics(bad_flags):
+    """bad_flags: list of (is_bad, was_stopped). Positive = 'this invoice is bad and must not be paid'.
+    TP bad stopped, FN bad let through (the dangerous one), FP clean stopped (a person has to look), TN clean approved."""
+    tp = sum(b and st for b, st in bad_flags); fn = sum(b and not st for b, st in bad_flags)
+    fp = sum((not b) and st for b, st in bad_flags); tn = sum((not b) and not st for b, st in bad_flags)
+    return {"tp": tp, "fn": fn, "fp": fp, "tn": tn,
+            "precision": tp / (tp + fp) if tp + fp else None, "recall": tp / (tp + fn) if tp + fn else None}
+
+
+def metrics_markdown(label, m):
+    pct = lambda x: "n/a" if x is None else f"{x * 100:.1f}%"
+    return ("| Run | Precision | Recall | False positives (clean held) | False negatives (bad approved) |\n"
+            "|---|---|---|---|---|\n"
+            f"| {label} | {pct(m['precision'])} | {pct(m['recall'])} | {m['fp']} | {m['fn']} |")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--holdout", action="store_true", help="run the hold-out split (once)")
@@ -148,6 +164,8 @@ def main():
     print(f"Clean invoices wrongly held:       {s['clean_held']} / {s['clean_total']}")
     print(f"Bad invoices wrongly approved:     {s['bad_approved']}")
     print(f"(exact expected decision:          {s['exact']} / {s['total']})")
+    m = metrics([(bool(r["is_bad"]), r["decision"] != "approve") for r in results])
+    print("\n" + metrics_markdown(f"{split} split, {mode}, {s['total']} synthetic invoices", m))
     if s["ai_errors"]:
         print(f"WARNING: {s['ai_errors']} invoice(s) hit investigator_failed (AI error). Those count as "
               "held, which flatters 'frauds caught' and hurts 'wrongly held'.")

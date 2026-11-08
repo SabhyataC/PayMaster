@@ -158,6 +158,9 @@ def main():
     bad_n = sum(r["is_bad"] for r in graded); clean = [r for r in graded if not r["is_bad"]]
     print(f"\n{len(plan)} invoices run  ({bad_n} bad, {len(clean)} clean, rest are set-up rows)")
     print(f"bad approved: {len(bad_approved)}   clean approved: {sum(r['correct'] for r in clean)}/{len(clean)}")
+    from scripts.eval import metrics, metrics_markdown
+    m = metrics([(bool(r["is_bad"]), r["status"] != "approved") for r in graded])
+    print("\n" + metrics_markdown(f"adversarial, {'stub-ai' if args.stub_ai else 'real-ai'}, seed {args.seed}, {len(graded)} synthetic invoices", m))
     for b in bad_approved:
         print("   BAD INVOICE APPROVED:", b)
     if args.out:
