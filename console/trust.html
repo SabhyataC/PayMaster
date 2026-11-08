@@ -53,6 +53,24 @@
         .ai-box { margin-top: 6px; padding: 6px 10px; background: var(--ai-bg); color: var(--ai); border-radius: 6px; font-size: 13px; }
         ul.probs { margin: 6px 0 0 18px; padding: 0; color: var(--bad); }
         .err { color: var(--bad); padding: 16px 0; }
+
+        /* ---- lifecycle timeline ---- */
+        .life { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 12px 8px; margin-bottom: 14px; }
+        .life h2 { font-size: 14px; margin: 0 0 12px 6px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+        .lf { display: grid; grid-template-columns: repeat(8, 1fr); }
+        .lf .st { position: relative; text-align: center; padding: 0 4px 8px; }
+        .lf .st:not(:last-child)::after { content: ""; position: absolute; top: 15px; left: calc(50% + 17px); right: calc(-50% + 17px); height: 3px; background: var(--line); }
+        .lf .st.done:not(:last-child)::after { background: var(--ok); }
+        .lf .dt { width: 32px; height: 32px; border-radius: 50%; margin: 0 auto 6px; display: grid; place-items: center; font-weight: 800; font-size: 14px; border: 3px solid var(--line); background: #fff; color: var(--muted); position: relative; z-index: 1; }
+        .lf .done .dt { border-color: var(--ok); background: var(--ok); color: #fff; }
+        .lf .problem .dt { border-color: var(--bad); background: var(--bad); color: #fff; }
+        .lf .skipped .dt { border-style: dashed; }
+        .lf .nm { font-size: 12px; font-weight: 700; line-height: 1.2; }
+        .lf .tm { font-size: 11px; color: var(--muted); margin-top: 2px; }
+        .lf .dtl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+        .lf .problem .nm { color: var(--bad); }
+        @media (max-width: 760px) { .lf { grid-template-columns: 1fr; } .lf .st { text-align: left; display: grid; grid-template-columns: 40px 1fr; padding-bottom: 10px; }
+            .lf .st:not(:last-child)::after { top: 34px; bottom: -4px; left: 15px; right: auto; width: 3px; height: auto; } .lf .dt { margin: 0; } }
         h2.sec { font-size: 16px; margin: 22px 0 8px; }
         .claim { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
         .claim.no { border-left-color: var(--bad); }
@@ -115,6 +133,7 @@
         <form id="f"><input id="ref" placeholder="Invoice number, e.g. NW-1001" aria-label="Invoice number"><button>Show</button></form>
     </header>
     <main>
+        <div id="life"></div>
         <div id="out"><p class="sub">Enter an invoice number, or open this page from an invoice or payment in the console.</p></div>
         <div id="report"></div>
     </main>
@@ -262,6 +281,24 @@
         }
 
         function renderReport(r) { PMReport.render($("report"), r); }
+        async function loadLifecycle(ref) {
+            const box = $("life"); box.textContent = "";
+            try {
+                const r = await fetch(`${API}/lifecycle/${encodeURIComponent(ref)}`);
+                if (!r.ok) return;
+                const d = await r.json();
+                const wrap = el("div", "life"); wrap.appendChild(el("h2", "", `Payment lifecycle: invoice ${d.invoice_number}`));
+                const lf = el("div", "lf");
+                d.stages.forEach((st, i) => {
+                    const c = el("div", "st " + st.state);
+                    c.appendChild(el("div", "dt", st.state === "done" ? "\u2713" : st.state === "problem" ? "!" : st.state === "skipped" ? "\u2212" : String(i + 1)));
+                    const b = el("div"); b.appendChild(el("div", "nm", st.label));
+                    b.appendChild(el("div", "tm", st.at ? new Date(st.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : st.state === "skipped" ? "not needed" : "waiting"));
+                    b.appendChild(el("div", "dtl", st.detail)); c.appendChild(b); lf.appendChild(c);
+                });
+                wrap.appendChild(lf); box.appendChild(wrap);
+            } catch (e) { }
+        }
         async function loadReport(ref) {
             const out = $("report"); out.textContent = "";
             try {
@@ -276,7 +313,7 @@
                 const r = await fetch(`${API}/trust/${kind}/${encodeURIComponent(ref)}`);
                 if (r.status === 401) { PM.clear(); location.replace("login.html"); return; }
                 if (!r.ok) { const e = el("div", "err", r.status === 404 ? "Nothing found for that reference in your company." : `Error ${r.status}`); $("out").textContent = ""; $("out").appendChild(e); return; }
-                const d = await r.json(); render(d); loadReport(d.invoice_id);
+                const d = await r.json(); render(d); loadReport(d.invoice_id); loadLifecycle(d.invoice_id);
             } catch (e) { const x = el("div", "err", "Cannot reach the API."); $("out").textContent = ""; $("out").appendChild(x); }
         }
         $("f").onsubmit = ev => { ev.preventDefault(); const v = $("ref").value.trim(); if (v) { history.replaceState(null, "", "?invoice=" + encodeURIComponent(v)); load("invoice", v); } };

@@ -1,5 +1,6 @@
 """Reconcile: compare our payment records with PayPal and log exceptions."""
 from backend.audit import log_decision
+from backend import paypal_client
 from backend.paypal_client import base_url, get_token
 from backend.settle import fetch_batch, fetch_item, settlement_from_item
 
@@ -335,13 +336,65 @@ def detect_failed(conn, company_id=None):
             new_counts["payment_failed"] = new_counts.get("payment_failed", 0) + 1
     return new_counts
 
+RECOVER_AFTER = timedelta(seconds=60)
+_RECOVER_STATUS = {"submitted": "submitted", "duplicate": "submitted", "unknown": "unknown", "rejected": "failed"}
+
+
+def recover_unknown(conn, company_id=None, older_than=RECOVER_AFTER):
+    """Payments whose PayPal answer we never saw ('unknown'). Ask PayPal again with the SAME idempotency key:
+    if the first call got through, PayPal says so ('duplicate') and we learn the batch id with no second payout;
+    if it never arrived, this is its first and only send. Only an invoice that is still approved is re-sent;
+    anything else is left for a person. Returns {"recovered": n, "still_unknown": n, "failed": n, "needs_person": n}."""
+    out = {"recovered": 0, "still_unknown": 0, "failed": 0, "needs_person": 0}
+    rows = conn.execute(
+        """SELECT p.id, p.invoice_id, p.idempotency_key, p.destination_email, p.amount, p.currency, i.status
+           FROM payments p JOIN invoices i ON i.id = p.invoice_id
+           WHERE p.status = 'unknown' AND p.updated_at < now() - %s::interval
+             AND (%s::uuid IS NULL OR p.company_id = %s::uuid)
+           ORDER BY p.updated_at FOR UPDATE OF p SKIP LOCKED""",
+        (older_than, company_id, company_id)).fetchall()
+    for pid, invoice_id, key, email, amount, currency, inv_status in rows:
+        if inv_status != "approved":
+            log_decision(conn, stage="reconcile", entity_type="payment", entity_id=pid, decision="needs_person",
+                         reason=f"Payout outcome unknown and the invoice is now '{inv_status}': not re-sending, a person must check PayPal",
+                         inputs={"key": key})
+            add_exception(conn, pid, "unknown_outcome", {"invoice_id": str(invoice_id), "invoice_status": inv_status})
+            out["needs_person"] += 1
+            continue
+        result = paypal_client.send_payout(key=key, email=email, amount=amount, currency=currency)
+        new_status = _RECOVER_STATUS[result["result"]]
+        conn.execute(
+            "UPDATE payments SET status = %s, paypal_batch_id = COALESCE(%s, paypal_batch_id), updated_at = now() WHERE id = %s",
+            (new_status, result.get("paypal_batch_id"), pid))
+        log_decision(conn, stage="pay", entity_type="payment", entity_id=pid, decision=result["result"], actor="system",
+                     reason=f"Recovery: asked PayPal again with the same key; it answered '{result['result']}', payment set to '{new_status}'",
+                     inputs={"key": key, "paypal": result, "recovery": True})
+        if new_status == "submitted":
+            conn.execute(
+                """UPDATE exceptions SET status = 'resolved', resolved_by = 'reconcile', resolved_at = now(),
+                          note = 'Recovered: PayPal confirmed the payout with the same key'
+                   WHERE payment_id = %s AND type = 'unknown_outcome' AND status = 'open'""", (pid,))
+            out["recovered"] += 1
+        elif new_status == "failed":
+            err = result.get("error")
+            add_exception(conn, pid, "payment_failed", {"invoice_id": str(invoice_id),
+                          "paypal_error": (err.get("name") if isinstance(err, dict) else str(err))[:200] if err else "rejected"})
+            out["failed"] += 1
+        else:
+            out["still_unknown"] += 1
+    return out
+
+
 def run_reconcile(conn, commit=True, company_id=None):
     """Check payments against PayPal. Returns {exception_type: new_count}.
     With company_id, only that company's payments are looked at or changed. Without it (the
     platform job: python -m backend.reconcile) every company is covered, and payouts that no
     company owns are reported to the platform operator."""
     new_counts = {}
-    steps = [detect_stuck(conn, company_id), detect_failed(conn, company_id),
+    rec = recover_unknown(conn, company_id)
+    if any(rec.values()):
+        conn.commit()   # a recovered payment is saved before the rest of the checks run
+    steps = [{f"recovery_{k}": v for k, v in rec.items() if v}, detect_stuck(conn, company_id), detect_failed(conn, company_id),
              detect_paypal_disagreements(conn, company_id)]
     if company_id is None:
         steps.append(detect_unknown_payouts(conn))

@@ -172,6 +172,7 @@ from backend.trust_api import router as trust_router
 from backend.report_api import router as report_router
 from backend.analytics_api import router as analytics_router
 from backend.notify_api import router as notify_router
+from backend.insights_api import router as insights_router
 
 app = FastAPI()
 def console_origins():
@@ -233,9 +234,24 @@ app.include_router(trust_router, dependencies=guard)
 app.include_router(report_router, dependencies=guard)
 app.include_router(analytics_router, dependencies=guard)
 app.include_router(notify_router)
+app.include_router(insights_router, dependencies=guard)
 
 
 @app.on_event("startup")
 def _start_alert_worker():
     from backend.notify import start_worker
     start_worker()
+    if os.environ.get("RECOVER_WORKER", "1") != "0":
+        import threading, time as _t
+
+        def loop():
+            from backend.reconcile import recover_unknown
+            while True:
+                _t.sleep(60)
+                try:
+                    with get_conn() as conn:
+                        recover_unknown(conn)
+                        conn.commit()
+                except Exception:
+                    pass
+        threading.Thread(target=loop, name="recover-unknown", daemon=True).start()

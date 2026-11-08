@@ -251,6 +251,15 @@ An admin opens **Team > Alerts**, adds up to 5 email addresses and 5 WhatsApp nu
 
 Open an invoice's Trust graph page: below the chain it shows an investigation report from `GET /report/invoice/{id}`. Every claim says what kind of basis it has (code check, fraud signal, AI opinion, code overruled the AI, a person's decision) and lists the record ids it rests on. It also lists each lookup the investigator made and the earlier human cases (case memory) it found. Text written by people or the AI is shown as data, never as instructions. Case memory can inform a reviewer, it can never approve anything.
 
+## Payment reliability, anomaly signals and new pages
+
+- **Retries:** PayPal calls retry on timeouts, 408, 429 and 5xx (3 tries, 2s/4s backoff plus jitter, `PAYPAL_MAX_TRIES`). A 4xx is permanent and never retried. Every try uses the same `PayPal-Request-Id`, so PayPal can never pay twice.
+- **Unknown outcome:** if every try times out the payment is `unknown`. A background job (every 60s, and inside every reconcile run) re-sends with the same key only if the invoice is still `approved`; otherwise a person is alerted. Set `RECOVER_WORKER=0` to disable the loop.
+- **Vendor behaviour signals:** amount far above the vendor's normal (needs 3+ past invoices) and invoice bursts within 24 hours raise fraud risk.
+- **Pages:** `approvals.html` (approval history with overrides), `reconcile.html` (books vs PayPal status, run reconcile), and a payment lifecycle strip on the Trust Graph page (`GET /lifecycle/{ref}`).
+- **Tests:** `python -m tests.test_payment_reliability`, `test_anomaly`, `test_insights`, and `test_lifecycle_e2e` (invoice to reconcile through the real code, plus timeout and failure variants).
+- **Real sandbox check:** `SANDBOX_RECEIVER_EMAIL=... python -m scripts.sandbox_smoke` sends one real sandbox payout and prints the Trust Graph verdict.
+
 ## Trust Graph
 
 Every invoice and payment has an evidence chain: Vendor, Invoice, PO, Delivery, Approval, Payout, PayPal webhook, Ledger, Reconcile. Open it from the "Trust graph" link on an invoice, a review-queue row or a payment (`console/trust.html`, API `GET /trust/invoice/{ref}` and `GET /trust/payment/{id}`). Each link is green (verified), red (missing or mismatch, with the reason in words) or grey (not reached yet), lists the record ids behind it, and is tagged "Verified fact" (our database, checked by code) or "AI suggestion" (read or suggested by Gemini). It only reads recorded data; it never asks an AI anything and never changes anything. A successful payout with no webhook after 10 minutes is shown red.

@@ -27,6 +27,10 @@ NEAR_LIMIT_RATIO = Decimal("0.90")        # amounts from 90% up to 100% of the a
 LOOKALIKE_MIN = 0.8                       # name similarity that makes the AI take a look
 MAX_TEXT_CHARS = 6000                     # how much email text the AI is shown
 POINTS = {"low": 1, "medium": 2, "high": 4}
+HISTORY_MIN = 3                           # need this many earlier invoices from the vendor to call an amount unusual
+UNUSUAL_MEDIUM, UNUSUAL_HIGH = Decimal("3"), Decimal("5")   # times the vendor's usual (median) amount
+BURST_WINDOW = timedelta(hours=24)
+BURST_MEDIUM, BURST_HIGH = 4, 6           # invoices from one vendor inside the window, this one included
 
 # Plain-text scan. It is a floor under the AI: if these phrases are in the text, the signal fires
 # even when the AI says "no" or is unavailable, so wording aimed at the AI cannot switch it off.
@@ -343,8 +347,44 @@ def scam_wording(inv):
     return None
 
 
+def amount_unusual_for_vendor(inv):
+    """This amount is far above what this vendor normally bills (median of its earlier approved or paid invoices)."""
+    rows = _query(
+        """SELECT amount FROM invoices WHERE vendor_id = %s AND company_id = %s AND id <> %s
+             AND status IN ('approved', 'paid') AND currency = %s AND received_at < %s::timestamptz
+           ORDER BY received_at DESC LIMIT 50""",
+        (inv["vendor_id"], current_tenant(), inv["id"], inv["currency"], inv["received_at"]))
+    past = sorted(Decimal(str(r["amount"])) for r in rows)
+    if len(past) < HISTORY_MIN:
+        return None
+    mid = len(past) // 2
+    median = past[mid] if len(past) % 2 else (past[mid - 1] + past[mid]) / 2
+    amount = Decimal(inv["amount"])
+    if median <= 0 or amount < median * UNUSUAL_MEDIUM:
+        return None
+    ratio = amount / median
+    return _signal(
+        "amount_unusual_for_vendor", "high" if ratio >= UNUSUAL_HIGH else "medium",
+        f"Amount {amount} is {ratio:.1f} times this vendor's usual {median:.2f} (based on {len(past)} earlier invoices)",
+        {"amount": str(amount), "median": str(median), "ratio": f"{ratio:.1f}", "history": len(past)})
+
+
+def invoice_burst(inv):
+    """Many invoices from one vendor in a short time, a pattern used to slip small payments through."""
+    rows = _query(
+        """SELECT count(*) AS n FROM invoices WHERE vendor_id = %s AND company_id = %s
+             AND received_at <= %s::timestamptz AND received_at > %s::timestamptz - %s::interval""",
+        (inv["vendor_id"], current_tenant(), inv["received_at"], inv["received_at"], BURST_WINDOW))
+    n = int(rows[0]["n"]) if rows else 0
+    if n < BURST_MEDIUM:
+        return None
+    return _signal("invoice_burst", "high" if n >= BURST_HIGH else "medium",
+                   f"{n} invoices from this vendor arrived within {int(BURST_WINDOW.total_seconds() // 3600)} hours",
+                   {"count": n, "hours": int(BURST_WINDOW.total_seconds() // 3600)})
+
+
 CHECKS = [bank_change_recent, bank_details_differ, amount_near_limit, new_payee,
-          email_domain_mismatch, lookalike_vendor, scam_wording]
+          email_domain_mismatch, lookalike_vendor, scam_wording, amount_unusual_for_vendor, invoice_burst]
 
 
 def risk_level(signals, hard_failed=False):

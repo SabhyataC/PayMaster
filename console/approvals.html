@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PayMaster: Approval history</title>
+    <style>
+        :root { --bg: #f7f6f2; --card: #fff; --line: #e4e2da; --ink: #1d1d1b; --muted: #6b6a63; --ok: #0b6b4f; --ok-bg: #e6f3ee; --bad: #b3261e; --bad-bg: #fbe9e7; --warn: #c77700; --warn-bg: #fdf0d9; --blue: #1f4e8c; --blue-bg: #e8eff9; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+        header { background: #fff; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        header a { color: var(--ok); text-decoration: none; font-weight: 600; }
+        main { max-width: 1040px; margin: 0 auto; padding: 16px; }
+        h1 { font-size: 20px; margin: 4px 0 2px; } .sub { color: var(--muted); margin: 0 0 12px; }
+        .grid { display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); margin-bottom: 14px; } @media (max-width: 800px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+        .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); } .card .n { font-size: 26px; font-weight: 700; margin: 2px 0; } .card .h { font-size: 12px; color: var(--muted); }
+        .chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px; background: #eeede8; color: #4a4a45; }
+        .chip.good { background: var(--ok-bg); color: var(--ok); } .chip.bad { background: var(--bad-bg); color: var(--bad); } .chip.warn { background: var(--warn-bg); color: #8a5200; } .chip.blue { background: var(--blue-bg); color: var(--blue); }
+        .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+        .tools button, .tools input { padding: 7px 12px; border: 1px solid #cfcdc4; border-radius: 8px; font: inherit; font-size: 13px; background: #fff; }
+        .tools button.on { background: var(--ok); color: #fff; border-color: var(--ok); } .tools button.pri { background: var(--ok); color: #fff; border-color: var(--ok); font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 13px; }
+        th { text-align: left; background: #faf9f5; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); } td { padding: 8px 10px; border-bottom: 1px solid #eeede8; vertical-align: top; } tr:last-child td { border-bottom: 0; }
+        .note { max-width: 320px; word-break: break-word; font-style: italic; color: #4a4a45; }
+        .banner { border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; display: flex; gap: 12px; align-items: center; }
+        .banner .ic { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: #fff; flex: none; }
+        .banner.in_sync { background: var(--ok-bg); } .banner.in_sync .ic { background: var(--ok); } .banner.attention { background: var(--bad-bg); } .banner.attention .ic { background: var(--bad); } .banner.empty { background: #eeede8; } .banner.empty .ic { background: #8a8a82; }
+        .banner b { font-size: 17px; display: block; } .banner ul { margin: 4px 0 0 18px; padding: 0; }
+        .empty { color: var(--muted); padding: 18px; text-align: center; }
+        .two { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; } @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+        .bar { height: 10px; background: #f1f0ea; border-radius: 99px; overflow: hidden; display: flex; margin: 6px 0; } .bar i { display: block; height: 100%; }
+        a.lnk { color: var(--blue); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <header><a href="index.html">&larr; Console</a><strong>Approval history</strong></header>
+    <main>
+        <h1>Approval history</h1>
+        <p class="sub">Every time a person approved or rejected an invoice: who, when, what the AI said, and what happened next.</p>
+        <div class="grid" id="stats"></div>
+        <div class="tools" id="tools"></div>
+        <div id="out"></div></main>
+    <script src="pm.js"></script>
+    <script src="ui.js"></script>
+    <script>
+        const API = "http://localhost:8000";
+        const $ = id => document.getElementById(id);
+        function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined && text !== null) e.textContent = text; return e; }
+        const when = t => t ? new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never";
+        const money = (a, c) => `${Number(a).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c || ""}`.trim();
+
+        let filter = "all", q = "";
+        const FILTERS = [["all", "All decisions"], ["approve", "Approved"], ["reject", "Rejected"], ["override", "Overrode the AI"]];
+        function stat(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", String(n))); c.appendChild(el("div", "h", h)); return c; }
+        function drawTools() {
+            const box = $("tools"); box.textContent = "";
+            FILTERS.forEach(([k, l]) => { const b = el("button", k === filter ? "on" : "", l); b.type = "button"; b.onclick = () => { filter = k; load(); }; box.appendChild(b); });
+            const i = el("input"); i.placeholder = "Search invoice, vendor or person"; i.value = q; i.setAttribute("aria-label", "Search");
+            let t; i.oninput = () => { clearTimeout(t); t = setTimeout(() => { q = i.value; load(false); }, 300); }; box.appendChild(i);
+        }
+        async function load(redraw = true) {
+            if (redraw) drawTools();
+            const out = $("out");
+            try {
+                const r = await fetch(`${API}/approvals?decision=${filter}&q=${encodeURIComponent(q)}`);
+                if (!r.ok) { out.textContent = `Could not load (error ${r.status})`; return; }
+                const d = await r.json(), s = d.stats; $("stats").textContent = "";
+                $("stats").appendChild(stat("Decisions", s.decisions, `${s.approved} approved, ${s.rejected} rejected`));
+                $("stats").appendChild(stat("Overrode the AI", s.overrides, "AI said hold or reject, a person approved"));
+                $("stats").appendChild(stat("Confirmed with vendor", s.confirmed_with_vendor, "approvals backed by a call or email"));
+                $("stats").appendChild(stat("Approved, then a problem", s.approved_then_problem, "approved invoices whose payment later raised an exception"));
+                out.textContent = "";
+                if (!d.items.length) { out.appendChild(el("div", "empty card", "No decisions match.")); return; }
+                const t = el("table"), h = el("tr"); ["When", "Invoice", "Vendor", "Amount", "AI said", "Person decided", "Note", "Result"].forEach(x => h.appendChild(el("th", "", x))); t.appendChild(h);
+                d.items.forEach(i => {
+                    const tr = el("tr"); tr.appendChild(el("td", "", when(i.at)));
+                    const a = el("td"); const l = el("a", "lnk", i.invoice_number); l.href = `trust.html?invoice=${encodeURIComponent(i.invoice_id)}`; a.appendChild(l); tr.appendChild(a);
+                    tr.appendChild(el("td", "", i.vendor)); tr.appendChild(el("td", "", money(i.amount, i.currency)));
+                    const ai = el("td"); ai.appendChild(el("span", "chip " + (i.ai_decision === "approve" ? "good" : "warn"), i.ai_decision || "n/a")); tr.appendChild(ai);
+                    const hd = el("td"); hd.appendChild(el("span", "chip " + (i.decision === "approve" ? "good" : "bad"), `${i.reviewer}: ${i.decision}`));
+                    if (i.override) { hd.appendChild(document.createTextNode(" ")); hd.appendChild(el("span", "chip blue", "overrode AI")); }
+                    if (i.confirmed_with_vendor) { hd.appendChild(document.createTextNode(" ")); hd.appendChild(el("span", "chip", "vendor confirmed")); }
+                    tr.appendChild(hd); tr.appendChild(el("td", "note", i.note));
+                    tr.appendChild(el("td", "", i.payment ? `payment ${i.payment}` : (i.status_after || "")));
+                    t.appendChild(tr);
+                });
+                out.appendChild(t);
+            } catch (e) { out.textContent = "Cannot reach the API"; }
+        }
+        load();
+    </script>
+</body>
+</html>

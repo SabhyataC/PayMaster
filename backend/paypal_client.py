@@ -1,4 +1,5 @@
 import os
+import random
 import time
 from decimal import Decimal
 
@@ -24,6 +25,35 @@ UNKNOWN_OUTCOME_CODES = ("ERRPYO036",)
 
 _token = {"value": None, "expires_at": 0.0}
 
+# Retries are safe for a payout because every try carries the same PayPal-Request-Id: PayPal returns the first
+# result instead of paying twice. We retry only what may be temporary (no answer, 408, 429, 5xx), never a 4xx.
+MAX_TRIES = int(os.environ.get("PAYPAL_MAX_TRIES", "3"))
+RETRY_DEADLINE_SECONDS = 70      # stop retrying after this long so the payment row is not locked for minutes
+_sleep = time.sleep              # tests replace this
+
+
+def _backoff(attempt):
+    """1s, 2s, 4s... plus up to 0.5s of jitter."""
+    return (2 ** attempt) + random.random() * 0.5
+
+
+def _post_with_retry(url, **kw):
+    """POST with retries on temporary trouble. Returns (response_or_None, last_error_text, tries)."""
+    start, err = time.time(), ""
+    for attempt in range(MAX_TRIES):
+        try:
+            r = requests.post(url, **kw)
+        except requests.RequestException as e:
+            r, err = None, f"{type(e).__name__}: {e}"
+        else:
+            if r.status_code not in (408, 429) and r.status_code < 500:
+                return r, "", attempt + 1
+            err = f"http {r.status_code}"
+        if attempt + 1 >= MAX_TRIES or time.time() - start > RETRY_DEADLINE_SECONDS:
+            return r, err, attempt + 1
+        _sleep(_backoff(attempt))
+    return None, err, MAX_TRIES
+
 
 def get_token() -> str:
     """Get a PayPal access token, reusing it until shortly before it expires."""
@@ -48,10 +78,17 @@ def send_payout(*, key, email, amount, currency="USD", note="Paymaster payment")
     Send one payout. `key` is the idempotency key from make_key().
     Returns {"result": "submitted" | "duplicate" | "rejected" | "unknown", ...}
     """
-    try:
-        token = get_token()
-    except requests.RequestException as e:
-        return {"result": "rejected", "error": f"token_request_failed: {e}"}
+    token, terr = None, ""
+    for attempt in range(MAX_TRIES):
+        try:
+            token = get_token()
+            break
+        except requests.RequestException as e:   # no payout has been sent yet, so retrying is always safe
+            terr = f"token_request_failed: {e}"
+            if attempt + 1 < MAX_TRIES:
+                _sleep(_backoff(attempt))
+    if token is None:
+        return {"result": "rejected", "error": terr}
 
     body = {
         "sender_batch_header": {
@@ -74,13 +111,11 @@ def send_payout(*, key, email, amount, currency="USD", note="Paymaster payment")
         "PayPal-Request-Id": key,  # same key on every retry, on purpose
     }
 
-    try:
-        r = requests.post(
-            f"{base_url()}/v1/payments/payouts", json=body, headers=headers, timeout=(5, 30)
-        )
-    except requests.RequestException as e:
-        # timeout or dropped connection: we cannot know if PayPal got it
-        return {"result": "unknown", "error": f"{type(e).__name__}: {e}"}
+    r, err, tries = _post_with_retry(
+        f"{base_url()}/v1/payments/payouts", json=body, headers=headers, timeout=(5, 30))
+    if r is None:
+        # no answer after every try: we cannot know if PayPal got it
+        return {"result": "unknown", "error": err, "tries": tries}
 
     try:
         data = r.json()
