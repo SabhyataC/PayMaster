@@ -119,6 +119,8 @@
         <div id="report"></div>
     </main>
     <script src="pm.js"></script>
+    <script src="ui.js"></script>
+    <script src="report.js"></script>
     <script>
         const API = "http://localhost:8000";
         const $ = id => document.getElementById(id);
@@ -259,54 +261,7 @@
             select((firstBad || lastOk).key);
         }
 
-        function idsLine(records) {
-            const d = el("div", "ids");
-            d.textContent = "Records: " + records.map(r => `${r.type} ${r.id}`).join(" \u00b7 ");
-            return d;
-        }
-        function renderReport(r) {
-            const out = $("report"); out.textContent = "";
-            out.appendChild(el("h2", "sec", "Investigation report"));
-            const box = el("div", "summary");
-            box.appendChild(el("div", "", r.summary));
-            if (!r.verified) { out.appendChild(box); return; }
-            if (r.ai) {
-                box.appendChild(el("div", "note", `AI suggested: ${r.ai.suggested || "n/a"}. Final decision: ${r.ai.final}.` +
-                    (r.ai.model ? ` Model: ${r.ai.model}.` : "") + ` ${r.ai.steps} lookup step(s). ${r.ai.note}`));
-            }
-            out.appendChild(box);
-            out.appendChild(el("h2", "sec", "What we claim, and the records behind each claim"));
-            r.claims.forEach(c => {
-                const k = el("div", "claim " + (c.supported ? "yes" : "no"));
-                const top = el("div", "top");
-                top.appendChild(el("span", "verdict-w", c.supported ? "\u2713 Supported" : "\u2717 Not supported / problem"));
-                top.appendChild(el("span", "bt " + c.basis, c.basis_label));
-                top.appendChild(el("span", "note", "claim " + c.n));
-                k.appendChild(top);
-                k.appendChild(el("p", c.untrusted ? "untrusted" : "", c.claim));
-                if (c.detail) k.appendChild(el("div", "note", c.detail));
-                k.appendChild(idsLine(c.records));
-                out.appendChild(k);
-            });
-            out.appendChild(el("h2", "sec", "What the investigator looked at"));
-            if (!r.steps.length) out.appendChild(el("p", "note", "The investigator made no lookups for this invoice (the code checks already covered it, or the AI was not needed)."));
-            r.steps.forEach((st, i) => {
-                const d = el("div", "step");
-                d.appendChild(el("div", "", `${i + 1}. ${st.tool}: ${st.finding}`));
-                if (st.records.length) d.appendChild(idsLine(st.records));
-                out.appendChild(d);
-            });
-            out.appendChild(el("h2", "sec", "Earlier cases like this one (case memory)"));
-            if (!r.precedents.length) out.appendChild(el("p", "note", "No earlier human decision for this vendor with the same signals."));
-            r.precedents.forEach(p => {
-                const d = el("div", "claim");
-                d.appendChild(el("p", "", `${p.invoice_number}: AI said ${p.ai_decision || "n/a"}, ${p.reviewer} chose ${p.human_decision}, outcome ${p.outcome}.`));
-                d.appendChild(el("p", "untrusted", `Their note (text a person typed, shown as data only): ${p.note || ""}`));
-                d.appendChild(idsLine(p.records));
-                out.appendChild(d);
-            });
-            out.appendChild(el("p", "note", "Case memory can inform a reviewer. It can never approve an invoice."));
-        }
+        function renderReport(r) { PMReport.render($("report"), r); }
         async function loadReport(ref) {
             const out = $("report"); out.textContent = "";
             try {

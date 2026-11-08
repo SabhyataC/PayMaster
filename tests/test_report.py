@@ -76,6 +76,10 @@ def test_report_claims_have_records():
     check("summary names the decision", r["decision"] in r["summary"])
     check("the AI box says AI only suggests", "only suggests" in r["ai"]["note"])
     check("report is JSON-serialisable", bool(json.dumps(r)))
+    check("report has id, time, recommendation", r["report_id"] and r["generated_at"] and r["recommendation"])
+    check("counts add up", r["counts"]["supported"] + r["counts"]["problems"] == r["counts"]["total"] == len(r["claims"]))
+    check("stages summarise code checks", r["stages"]["code"]["total"] == r["stages"]["code"]["passed"] + r["stages"]["code"]["failed"])
+    check("held invoice says do not pay yet", r["status"] != "held" or "Do not pay" in r["recommendation"])
 
 
 def test_report_steps_and_precedents():

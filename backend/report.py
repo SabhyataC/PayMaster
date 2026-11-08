@@ -7,6 +7,7 @@ Every claim carries the ids of the records it rests on, and says what kind of ba
 Nothing here asks an AI anything. Text typed by people or written by the AI is passed through as
 data and flagged `untrusted`, so the console shows it escaped and never treats it as instructions.
 """
+from datetime import datetime, timezone
 from decimal import Decimal
 
 BASIS_LABEL = {"code_check": "Code check", "fraud_signal": "Fraud signal", "ai": "AI opinion",
@@ -163,7 +164,30 @@ def build_report(conn, invoice_id, company_id):
     ai = {"suggested": vin.get("agent_decision"), "final": verdict.get("decision"), "confidence": verdict.get("confidence"),
           "model": vin.get("model"), "steps": vin.get("steps", len(steps)), "overruled_by_code": bool(forced),
           "note": "The AI only suggests. Code checks, fraud gates and people decide."}
+    fr = conn.execute("SELECT id, decision, inputs FROM audit_log WHERE entity_id = %s AND stage = 'fraud' "
+                      "AND reason LIKE 'Fraud risk %%' ORDER BY id DESC LIMIT 1", (iid,)).fetchone()
+    fraud = ({"risk": fr[1], "score": (fr[2] or {}).get("score"), "signals": (fr[2] or {}).get("signals") or [],
+              "record": _rec("audit_log", fr[0])} if fr else None)
+    code_claims = [c for c in claims if c["basis"] == "code_check"]
+    stages = {
+        "code": {"passed": sum(c["supported"] for c in code_claims), "failed": sum(not c["supported"] for c in code_claims),
+                 "total": len(code_claims)},
+        "fraud": {"risk": fraud["risk"] if fraud else None, "signals": len(fraud["signals"]) if fraud else 0},
+        "ai": {"suggested": vin.get("agent_decision"), "ran": bool(vin.get("agent_decision") or vin.get("steps"))},
+        "gate": {"overruled": bool(forced)},
+        "human": {"decision": human["decision"] if human else None, "reviewer": human["reviewer"] if human else None},
+    }
     reasons = verdict.get("reasons") or []
+    if status == "paid":
+        rec = "Paid. Nothing further to do. The ledger and reconcile show whether PayPal agrees."
+    elif human and human["decision"] == "reject" or status in ("rejected", "cancelled"):
+        rec = "Closed without payment."
+    elif status == "approved":
+        rec = "Cleared by every check. It can be paid, subject to the company's pay policy."
+    elif status == "held":
+        rec = "Do not pay yet. A person must look at the failed checks below and approve or reject."
+    else:
+        rec = "Waiting for the next step."
     summary = (f"Verify decided '{verdict.get('decision')}'"
                + (f" because of: {', '.join(reasons)}." if reasons else ": every check passed.")
                + (" The AI's suggestion was overruled by code." if forced else ""))
@@ -171,4 +195,8 @@ def build_report(conn, invoice_id, company_id):
             "currency": currency, "status": status, "verified": True, "verified_at": verify["at"], "summary": summary,
             "decision": verdict.get("decision"), "reasons": reasons, "claims": claims, "steps": steps,
             "precedents": precedents, "ai": ai, "human": human, "audit_record": src,
+            "fraud": fraud, "stages": stages, "recommendation": rec,
+            "counts": {"supported": sum(c["supported"] for c in claims), "problems": sum(not c["supported"] for c in claims),
+                       "total": len(claims)},
+            "report_id": f"{number}-{verify['id']}", "generated_at": datetime.now(timezone.utc).isoformat(),
             "basis_legend": BASIS_LABEL}
