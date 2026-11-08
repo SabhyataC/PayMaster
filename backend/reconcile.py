@@ -28,7 +28,14 @@ def add_exception(conn, payment_id, type_, detail):
                RETURNING id""",
             (payment_id, type_, json.dumps(detail), payment_id),
         )
-        return cur.fetchone() is not None
+        added = cur.fetchone() is not None
+    if added and payment_id:
+        try:
+            from backend.notify import emit_payment_problem
+            emit_payment_problem(conn, payment_id, type_)
+        except Exception:
+            pass
+    return added
 
 def detect_stuck(conn, company_id=None):
     """Payments stuck in one status for longer than its limit.

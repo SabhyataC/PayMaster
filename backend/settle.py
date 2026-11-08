@@ -165,12 +165,18 @@ def sync_payment(conn, batch_id: str) -> dict:
 
     if new_status == "failed":
         err = (item.get("errors") or {}).get("name") or item_status
-        conn.execute(
+        added = conn.execute(
             """INSERT INTO exceptions (payment_id, type, detail, company_id)
                VALUES (%s, 'payment_failed', %s::jsonb, (SELECT company_id FROM payments WHERE id = %s))
                ON CONFLICT (payment_id, type) WHERE status = 'open' DO NOTHING""",
             (payment_id, json.dumps({"invoice_id": str(invoice_id), "paypal_error": err}), payment_id),
-        )
+        ).rowcount
+        if added:
+            try:
+                from backend.notify import emit_payment_problem
+                emit_payment_problem(conn, payment_id, "payment_failed")
+            except Exception:
+                pass
 
     fee = Decimal("0")
     if new_status == "success":
@@ -207,6 +213,12 @@ def sync_payment(conn, batch_id: str) -> dict:
              settlement["fx_rate"], settlement["fee_amount"], settlement["fee_currency"]),
         )
         conn.execute("UPDATE invoices SET status = 'paid' WHERE id = %s", (invoice_id,))
+        if not already:
+            try:
+                from backend.notify import emit_payment_sent
+                emit_payment_sent(conn, payment_id)
+            except Exception:
+                pass
 
     log_decision(
         conn, stage="pay", entity_type="payment", entity_id=payment_id,

@@ -368,6 +368,12 @@ def investigate(invoice_id, allow_release=False):
             log_fraud_signals(conn, invoice_id, result["fraud"])
         if after != before:
             conn.execute("UPDATE invoices SET status = %s WHERE id = %s", (after, invoice_id))
+        if after == "held" and before != "held":
+            try:
+                from backend.notify import emit_invoice_held
+                emit_invoice_held(conn, invoice_id, verdict.get("reasons"))
+            except Exception:
+                pass  # an alert must never stop Verify
         conn.commit()
     result["status"] = after
     return result

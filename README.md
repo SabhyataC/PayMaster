@@ -237,6 +237,16 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 - Seeding: `python -m backend.seed` erases every table. It refuses unless the database name contains `dev`, `demo`, `test` or `eval`, or you set `ALLOW_SEED=1` on purpose.
 - Extraction quality depends on the AI model; see `docs/ai-results.md`. If the AI is unavailable the invoice is held, never approved.
 
+## Alerts by email and WhatsApp
+
+An admin opens **Team > Alerts**, adds up to 5 email addresses and 5 WhatsApp numbers, picks which events to hear about (invoice on hold, payment problem, document could not be read, payment confirmed) and clicks **Send a test message**.
+
+- Alerts are written to an outbox in the same transaction as the event, so a change that is rolled back never sends anything. A background worker sends them, retries a failed send up to 3 times and records every attempt in the table on the Alerts card.
+- Messages contain only our own wording, the invoice number, the vendor name (cleaned), the amount and a short reason. They never contain bank details or text from an invoice.
+- A failing email or WhatsApp provider can never block Verify or a payment.
+- Server settings live in `.env` (see `.env.example`): `SMTP_*` for email and `TWILIO_*` for WhatsApp. The WhatsApp sandbox only reaches phones that first sent the join code to the sandbox number; a production sender needs Twilio approval and message templates.
+- Alerts are one way. You cannot approve or pay by replying to a message.
+
 ## Investigation report
 
 Open an invoice's Trust graph page: below the chain it shows an investigation report from `GET /report/invoice/{id}`. Every claim says what kind of basis it has (code check, fraud signal, AI opinion, code overruled the AI, a person's decision) and lists the record ids it rests on. It also lists each lookup the investigator made and the earlier human cases (case memory) it found. Text written by people or the AI is shown as data, never as instructions. Case memory can inform a reviewer, it can never approve anything.

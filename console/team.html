@@ -73,6 +73,25 @@
             </div>
             <div class="msg" id="fmsg"></div>
         </div>
+        <div class="card">
+            <h2>Alerts by email and WhatsApp</h2>
+            <p class="sub">Get a message when something needs a person. Messages never contain bank details, only the invoice number, vendor, amount and a short reason.</p>
+            <div id="alertserver" class="sub"></div>
+            <div class="row">
+                <div><label><input type="checkbox" id="al_on"> Alerts are on</label></div>
+            </div>
+            <div class="row">
+                <div style="flex:1;min-width:240px"><label for="al_email">Email addresses (one per line, up to 5)</label><textarea id="al_email" rows="3" style="width:100%"></textarea></div>
+                <div style="flex:1;min-width:240px"><label for="al_wa">WhatsApp numbers with country code (one per line, up to 5)</label><textarea id="al_wa" rows="3" style="width:100%" placeholder="+919876543210"></textarea></div>
+            </div>
+            <div id="al_events" style="margin:8px 0"></div>
+            <div class="row">
+                <div><button id="al_save">Save alerts</button></div>
+                <div><button id="al_test" class="secondary">Send a test message</button></div>
+            </div>
+            <div class="msg" id="al_msg"></div>
+            <table class="tbl" id="al_logt" style="display:none"><thead><tr><th>When</th><th>Alert</th><th>Channel</th><th>To</th><th>Result</th></tr></thead><tbody id="al_log"></tbody></table>
+        </div>
     </div>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
@@ -150,8 +169,51 @@
             $("fmsg").textContent = r.ok ? "Saved." : detail(r.data);
         };
 
+
+        // ---- Alerts ----
+        const lines = t => t.split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);
+        function showAlerts(d) {
+            $("al_on").checked = d.settings.enabled;
+            $("al_email").value = d.settings.email_to.join("\n");
+            $("al_wa").value = d.settings.whatsapp_to.join("\n");
+            const ev = $("al_events"); ev.textContent = "";
+            Object.entries(d.event_names).forEach(([k, label]) => {
+                const l = document.createElement("label"); l.style.display = "block";
+                const c = document.createElement("input"); c.type = "checkbox"; c.value = k; c.checked = d.settings.events.includes(k);
+                l.appendChild(c); l.appendChild(document.createTextNode(" " + label)); ev.appendChild(l);
+            });
+            const sv = [];
+            sv.push(d.server.email ? "Email sending is set up on this server." : "Email is not set up on this server yet (SMTP settings missing).");
+            sv.push(d.server.whatsapp ? "WhatsApp sending is set up." : "WhatsApp is not set up on this server yet (Twilio settings missing).");
+            $("alertserver").textContent = sv.join(" ");
+            const tb = $("al_log"); tb.textContent = "";
+            $("al_logt").style.display = d.log.length ? "" : "none";
+            d.log.forEach(r => {
+                const tr = document.createElement("tr");
+                [new Date(r.at).toLocaleString(), r.event.replace(/_/g, " "), r.channel, r.to, r.status === "sent" ? "Sent" : "Failed: " + (r.error || "")].forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); });
+                tb.appendChild(tr);
+            });
+        }
+        async function loadAlerts() { const r = await call("/admin/notifications"); if (r.ok) showAlerts(r.data); }
+        $("al_save").onclick = async () => {
+            const events = [...$("al_events").querySelectorAll("input:checked")].map(c => c.value);
+            const r = await call("/admin/notifications", "POST", { enabled: $("al_on").checked, email_to: lines($("al_email").value), whatsapp_to: lines($("al_wa").value), events });
+            if (r.ok) { showAlerts(r.data); PM.toast("Alert settings saved", "ok"); } else PM.toast(detail(r.data), "error");
+        };
+        $("al_test").onclick = async () => {
+            $("al_test").disabled = true;
+            const r = await call("/admin/notifications/test", "POST", {});
+            $("al_test").disabled = false;
+            if (!r.ok) { PM.toast(detail(r.data), "error"); return; }
+            const bad = r.data.results.filter(x => !x.ok);
+            if (bad.length) PM.toast(`${r.data.results.length - bad.length} sent, ${bad.length} failed: ${bad[0].error}`, "error");
+            else PM.toast(`Test sent to ${r.data.results.length} recipient${r.data.results.length === 1 ? "" : "s"}`, "ok");
+            loadAlerts();
+        };
+
         (async () => {
             await load();
+            loadAlerts();
             const s = await call("/admin/settings");
             if (s.ok && s.data.auto_pay_limit) $("limit").value = s.data.auto_pay_limit;
             if (s.ok) $("foureyes").checked = s.data.four_eyes !== false;

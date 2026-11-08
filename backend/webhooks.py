@@ -171,6 +171,7 @@ from backend.changes_api import router as changes_router
 from backend.trust_api import router as trust_router
 from backend.report_api import router as report_router
 from backend.analytics_api import router as analytics_router
+from backend.notify_api import router as notify_router
 
 app = FastAPI()
 def console_origins():
@@ -231,3 +232,10 @@ app.include_router(changes_router, dependencies=guard)
 app.include_router(trust_router, dependencies=guard)
 app.include_router(report_router, dependencies=guard)
 app.include_router(analytics_router, dependencies=guard)
+app.include_router(notify_router)
+
+
+@app.on_event("startup")
+def _start_alert_worker():
+    from backend.notify import start_worker
+    start_worker()

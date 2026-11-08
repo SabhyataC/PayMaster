@@ -263,6 +263,11 @@ def _needs_review(conn, extraction_id, reason):
         reason=reason,
         inputs={"extraction_id": str(extraction_id)},
     )
+    try:
+        from backend.notify import emit_document_needs_fix
+        emit_document_needs_fix(conn, extraction_id)
+    except Exception:
+        pass
     conn.commit()
     return {"status": "needs_review", "reason": reason, "invoice_id": None}
 

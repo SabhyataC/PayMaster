@@ -693,3 +693,41 @@ CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments (entity_type, e
 
 -- Four-eyes rule: ON by default. A company may switch it off (admin, audited), e.g. a one-person demo.
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS require_four_eyes BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Alerts by email and WhatsApp. Events are written to the outbox in the SAME transaction as the thing they
+-- announce (so a rolled-back change never sends anything), and a worker sends them afterwards.
+CREATE TABLE IF NOT EXISTS notification_settings (
+    company_id UUID PRIMARY KEY REFERENCES companies (id),
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    email_to TEXT[] NOT NULL DEFAULT '{}',
+    whatsapp_to TEXT[] NOT NULL DEFAULT '{}',
+    events TEXT[] NOT NULL DEFAULT '{invoice_held,payment_problem,document_needs_fix}',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS notification_outbox (
+    id BIGSERIAL PRIMARY KEY,
+    company_id UUID NOT NULL REFERENCES companies (id),
+    event TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+    attempts INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    done_at TIMESTAMPTZ,
+    UNIQUE (company_id, dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox (status, id) WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS notification_log (
+    id BIGSERIAL PRIMARY KEY,
+    outbox_id BIGINT NOT NULL REFERENCES notification_outbox (id),
+    channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+    recipient TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+    error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_notiflog_outbox ON notification_log (outbox_id);
