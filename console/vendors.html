@@ -322,6 +322,7 @@
     </div>
 
     <script src="pm.js"></script>
+    <script src="ui.js"></script>
     <script>
         const API = "http://localhost:8000";
         const $ = id => document.getElementById(id);
@@ -348,8 +349,8 @@
             }
             return data;
         }
-        function fail(id, e) { $(id).className = "msg"; $(id).textContent = e.message === "Failed to fetch" ? "Cannot reach the API" : e.message; }
-        function done(id, text) { $(id).className = "msg ok"; $(id).textContent = text; }
+        function fail(id, e) { const m = e.message === "Failed to fetch" ? "Cannot reach the API" : e.message; $(id).className = "msg"; $(id).textContent = ""; PM.toast(m, "error"); }
+        function done(id, text) { $(id).className = "msg ok"; $(id).textContent = ""; PM.toast(text, "ok"); }
 
         let vendors = [];
         async function loadVendors() {
@@ -405,17 +406,17 @@
             const t = e.target.dataset || {};
             try {
                 if (t.id) {
-                    const email = prompt("New payout email:"); if (!email) return;
+                    const a = await PM.ask("Change payout email", [{ name: "email", label: "New payout email", required: true, placeholder: "ap@vendor.com" }], { okText: "Request change", intro: "Payouts for this vendor will go to the new address once it is applied." }); if (!a) return; const email = a.email;
                     await call("/vendors/" + t.id, "POST", { payout_email: email.trim() });
                     done("vmsg", "Done. If you have a second admin, they must approve it first; otherwise it was applied now.");
                 } else if (t.vedit) {
-                    const name = prompt("Name:", t.name); if (name === null) return;
-                    const country = prompt("Country:", t.country); if (country === null) return;
+                    const a = await PM.ask("Edit vendor", [{ name: "name", label: "Name", value: t.name, required: true }, { name: "country", label: "Country", value: t.country, required: true }], { okText: "Save" }); if (!a) return;
+                    const { name, country } = a;
                     await call("/vendors/" + t.vedit, "POST", { name, country });
                     done("vmsg", "Vendor updated");
                 } else if (t.vtoggle || t.vdel) {
                     const act = t.vdel ? "delete" : (t.active === "true" ? "deactivate" : "reactivate");
-                    const reason = prompt(`Why are you going to ${act} this vendor? (min 10 characters)`); if (!reason) return;
+                    const reason = await PM.askReason(`${act[0].toUpperCase() + act.slice(1)} this vendor`, { label: `Why are you going to ${act} this vendor?`, okText: act[0].toUpperCase() + act.slice(1), danger: act === "delete" }); if (!reason) return;
                     await call(`/vendors/${t.vdel || t.vtoggle}/${act}`, "POST", { reason });
                     done("vmsg", "Vendor " + act + "d");
                 } else return;
@@ -432,17 +433,19 @@
             const t = e.target.dataset || {};
             try {
                 if (t.po) {
-                    if (!confirm("Mark this PO as fully delivered? This records a delivery for everything not yet delivered.")) return;
+                    if (!(await PM.confirm("This records a delivery for everything not yet delivered on this PO.", { title: "Mark PO as fully delivered", okText: "Mark delivered" }))) return;
                     await call(`/pos/${t.po}/deliver-all`, "POST"); done("pmsg", "Marked fully delivered");
                 } else if (t.pedit) {
-                    const amount = prompt("Amount:", t.amt); if (amount === null) return;
-                    const currency = prompt("Currency:", t.cur); if (currency === null) return;
-                    const quantity = prompt("Quantity (blank for none):", t.qty); if (quantity === null) return;
-                    const reason = prompt("Why are you changing it? (min 10 characters)"); if (!reason) return;
+                    const a = await PM.ask("Edit purchase order", [
+                        { name: "amount", label: "Amount", value: t.amt, required: true, inputmode: "decimal" },
+                        { name: "currency", label: "Currency", value: t.cur, required: true },
+                        { name: "quantity", label: "Quantity", value: t.qty, hint: "Leave blank for none", inputmode: "decimal" },
+                        { name: "reason", label: "Why are you changing it?", min: 10, textarea: true, hint: "Written to the audit log." }], { okText: "Save changes" }); if (!a) return;
+                    const { amount, currency, quantity, reason } = a;
                     await call(`/pos/${t.pedit}/edit`, "POST", { amount, currency, quantity: quantity || null, reason });
                     done("pmsg", "PO updated");
                 } else if (t.pcancel) {
-                    const reason = prompt("Why are you cancelling this PO? (min 10 characters)"); if (!reason) return;
+                    const reason = await PM.askReason("Cancel this purchase order", { label: "Why are you cancelling it?", okText: "Cancel PO", cancelText: "Keep it", danger: true }); if (!reason) return;
                     await call(`/pos/${t.pcancel}/cancel`, "POST", { reason });
                     done("pmsg", "PO cancelled");
                 } else return;
@@ -467,14 +470,16 @@
             const t = e.target.dataset || {};
             try {
                 if (t.dedit) {
-                    const description = prompt("What arrived:", t.desc); if (description === null) return;
-                    const amount = prompt("Value:", t.amt); if (amount === null) return;
-                    const quantity = prompt("Quantity (blank for none):", t.qty); if (quantity === null) return;
-                    const reason = prompt("Why are you changing it? (min 10 characters)"); if (!reason) return;
+                    const a = await PM.ask("Edit delivery", [
+                        { name: "description", label: "What arrived", value: t.desc, required: true },
+                        { name: "amount", label: "Value", value: t.amt, required: true, inputmode: "decimal" },
+                        { name: "quantity", label: "Quantity", value: t.qty, hint: "Leave blank for none", inputmode: "decimal" },
+                        { name: "reason", label: "Why are you changing it?", min: 10, textarea: true, hint: "Written to the audit log." }], { okText: "Save changes" }); if (!a) return;
+                    const { description, amount, quantity, reason } = a;
                     await call(`/deliveries/${t.dedit}/edit`, "POST", { description, amount, quantity: quantity || null, reason });
                     done("dmsg", "Delivery updated"); await refresh();
                 } else if (t.ddel) {
-                    const reason = prompt("Why are you deleting this delivery? (min 10 characters)"); if (!reason) return;
+                    const reason = await PM.askReason("Delete this delivery", { label: "Why are you deleting it?", okText: "Delete", danger: true }); if (!reason) return;
                     await call(`/deliveries/${t.ddel}/delete`, "POST", { reason });
                     done("dmsg", "Delivery deleted"); await refresh();
                 }
@@ -502,15 +507,15 @@
                             const d = await r.json().catch(() => ({}));
                             if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Upload failed");
                             await refresh();
-                        } catch (err) { alert(err.message); }
+                        } catch (err) { PM.toast(err.message === "Failed to fetch" ? "Cannot reach the API" : err.message, "error"); }
                     };
                     inp.click();
                 } else if (t.adel) {
-                    const reason = prompt("Why are you removing this file? (min 10 characters)"); if (!reason) return;
+                    const reason = await PM.askReason("Remove this file", { label: "Why are you removing it?", okText: "Remove", danger: true }); if (!reason) return;
                     await call(`/attachments/${t.adel}/delete`, "POST", { reason });
                     await refresh();
                 }
-            } catch (err) { alert(err.message); }
+            } catch (err) { PM.toast(err.message === "Failed to fetch" ? "Cannot reach the API" : err.message, "error"); }
         });
 
         function showTab(t) {

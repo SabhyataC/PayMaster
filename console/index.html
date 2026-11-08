@@ -350,6 +350,7 @@
     </div>
 
     <script src="pm.js"></script>
+    <script src="ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
@@ -371,8 +372,8 @@
             };
             if (PM.canAct()) mk("Explain", () => act(p.data.id, "explain"));
             if (PM.canAct() && p.data.status === "open") {
-                mk("Resolve", () => {
-                    const note = prompt("Note (what did you check in PayPal?):");
+                mk("Resolve", async () => {
+                    const note = await PM.askReason("Resolve this exception", { label: "What did you check in PayPal?", okText: "Resolve", min: 1, hint: "Written to the audit log." });
                     if (!note) return;
                     act(p.data.id, "resolve", { note: note });
                 });
@@ -567,7 +568,8 @@
         }
 
         async function decide(id, decision, confirmedWithVendor) {
-            const note = prompt("Why? (at least 10 characters)");
+            const note = await PM.askReason(decision === "approve" ? "Approve this invoice" : "Reject this invoice",
+                { label: "Why? (what did you check)", okText: decision === "approve" ? "Approve" : "Reject", danger: decision !== "approve" });
             if (!note) return;
             await sendDecision(id, decision, note, false);
         }
@@ -580,7 +582,7 @@
             if (r.ok) { $("qmsg").textContent = `${decision} done`; return loadQueue(); }
             const e = await r.json().catch(() => ({}));
             if (e.detail && e.detail.code === "confirmation_required" && !confirmed) {
-                if (confirm(e.detail.message + "\n\nHave you confirmed with the vendor?")) {
+                if (await PM.confirm(e.detail.message + "\n\nHave you confirmed with the vendor?", { title: "Confirm with the vendor", okText: "Yes, I confirmed it" })) {
                     return sendDecision(id, decision, note, true);
                 }
             }
@@ -601,14 +603,14 @@
         }
 
         async function payInvoice(id, row, confirmed = false) {
-            if (!confirmed && !confirm(`Pay ${row.amount} ${row.currency} to ${row.vendor}?`)) return;
+            if (!confirmed && !(await PM.confirm(`Pay ${row.amount} ${row.currency} to ${row.vendor}?`, { title: "Send payment", okText: "Pay now" }))) return;
             const r = await fetch(`${API}/review/${id}/pay`, {
                 method: "POST", headers: hdr(),
                 body: JSON.stringify({ confirm_missing_delivery: confirmed }),
             });
             const e = await r.json().catch(() => ({}));
             if (r.ok && e.status === "needs_confirmation" && !confirmed) {
-                if (confirm(`PO ${e.po_number} for this invoice has no delivery recorded yet.\n\nStill proceed to pay?`)) {
+                if (await PM.confirm(`PO ${e.po_number} for this invoice has no delivery recorded yet.\n\nStill proceed to pay?`, { title: "No delivery recorded", okText: "Pay anyway", danger: true })) {
                     return payInvoice(id, row, true);
                 }
                 const c = "Cancelled: no delivery recorded, nothing was paid.";
@@ -669,8 +671,9 @@
                     try {
                         const r = await fetch(`${API}/invoices/${encodeURIComponent(p.data.id)}/reverify`, { method: "POST" });
                         const d = await r.json().catch(() => ({}));
-                        if (!r.ok) alert(d.detail || "Could not re-verify");
-                    } catch (err) { alert("Could not reach the server"); }
+                        if (!r.ok) PM.toast(typeof d.detail === "string" ? d.detail : "Could not re-verify", "error");
+                        else PM.toast("Re-verify started. The result appears in a moment.", "ok");
+                    } catch (err) { PM.toast("Could not reach the server", "error"); }
                     loadInvoices(); loadAttention();
                 });
                 box.appendChild(rv);
@@ -679,13 +682,13 @@
                 const cx = document.createElement("button");
                 cx.textContent = "Cancel"; cx.style.marginLeft = "6px";
                 cx.addEventListener("click", async () => {
-                    const note = prompt("Why are you cancelling this invoice? (at least 10 characters)");
+                    const note = await PM.askReason("Cancel this invoice", { label: "Why are you cancelling it?", okText: "Cancel invoice", cancelText: "Keep it", danger: true });
                     if (!note) return;
                     const r = await fetch(`${API}/review/${p.data.id}/decision`, {
                         method: "POST", headers: hdr(),
                         body: JSON.stringify({ decision: "reject", note, confirmed_with_vendor: false }),
                     });
-                    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(errText(e)); }
+                    if (!r.ok) { const e = await r.json().catch(() => ({})); PM.toast(errText(e), "error"); } else PM.toast("Invoice cancelled", "ok");
                     loadInvoices(); loadAttention();
                 });
                 box.appendChild(cx);
@@ -722,7 +725,7 @@
             const act = b.dataset.act, eid = encodeURIComponent(b.dataset.id);
             let opts = { method: "POST" };
             if (act === "delete") {
-                const reason = prompt("Why are you deleting this upload? (at least 10 characters)");
+                const reason = await PM.askReason("Delete this upload", { label: "Why are you deleting it?", okText: "Delete", danger: true });
                 if (!reason) return;
                 opts = { method: "POST", headers: hdr(), body: JSON.stringify({ reason }) };
             }
@@ -733,8 +736,9 @@
             try {
                 const r = await fetch(url, opts);
                 const d = await r.json().catch(() => ({}));
-                if (!r.ok) alert(typeof d.detail === "string" ? d.detail : "Could not do that");
-            } catch (err) { alert("Could not reach the server"); }
+                if (!r.ok) PM.toast(typeof d.detail === "string" ? d.detail : "Could not do that", "error");
+                else PM.toast(act === "delete" ? "Upload deleted" : "Done", "ok");
+            } catch (err) { PM.toast("Could not reach the server", "error"); }
             loadAttention(); if (typeof loadQueue === "function") loadQueue();
         });
 

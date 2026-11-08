@@ -75,6 +75,7 @@
         </div>
     </div>
     <script src="pm.js"></script>
+    <script src="ui.js"></script>
     <script>
         const API = "http://localhost:8000";
         const $ = id => document.getElementById(id);
@@ -122,7 +123,7 @@
                 $("tmsg").textContent = r.ok ? "Saved." : detail(r.data);
                 load();
             } else if (t.dataset.reset) {
-                if (!confirm("Create a one-time reset token for this person?")) return;
+                if (!(await PM.confirm("Create a one-time reset token for this person? You give it to them yourself. It works once and expires.", { title: "Reset password", okText: "Create token" }))) return;
                 const r = await call(`/admin/users/${t.dataset.reset}/reset-token`, "POST");
                 if (!r.ok) { $("tmsg").className = "msg err"; $("tmsg").textContent = detail(r.data); return; }
                 $("tokenbox").innerHTML = `<p class="sub">Give this token to the person yourself. It is shown once and works for ${esc(r.data.expires_in_minutes)} minutes. They enter it on the account page under "Forgot your password?".</p><p><code>${esc(r.data.token)}</code></p>`;
