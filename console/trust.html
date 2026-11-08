@@ -18,7 +18,7 @@
         header form { margin-left: auto; display: flex; gap: 6px; }
         input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; min-width: 0; }
         button { padding: 7px 12px; border: 1px solid var(--ok); background: var(--ok); color: #fff; border-radius: 6px; font: inherit; cursor: pointer; }
-        main { max-width: 760px; margin: 0 auto; padding: 16px; }
+        main { max-width: 980px; margin: 0 auto; padding: 16px; }
         .summary { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
         .summary h1 { font-size: 18px; margin: 0 0 4px; }
         .summary .sub { color: var(--muted); }
@@ -66,6 +66,44 @@
         .step { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; margin: 0 0 8px 6px; }
         .untrusted { font-style: italic; }
         .note { font-size: 12px; color: var(--muted); }
+
+        /* ---- visual graph ---- */
+        .stage { position: relative; background: #0e1726; border-radius: 14px; padding: 6px; margin-bottom: 14px; overflow: hidden;
+                 background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.07) 1px, transparent 0); background-size: 22px 22px; }
+        .stage svg { width: 100%; height: auto; display: block; }
+        .hero { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 4px 0 12px; }
+        .ring { width: 64px; height: 64px; flex: none; }
+        .meter { flex: 1; min-width: 200px; }
+        .meter .bar { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--wait-bg); margin: 6px 0; }
+        .meter .bar i { display: block; height: 100%; }
+        .meter .nums { font-size: 13px; color: var(--muted); }
+        .gnode { cursor: pointer; outline: none; }
+        .gnode .halo { opacity: 0; transition: opacity .2s; }
+        .gnode:hover .halo, .gnode:focus .halo, .gnode.sel .halo { opacity: .55; }
+        .gnode text.t { fill: #e6edf7; font: 600 13px system-ui, sans-serif; text-anchor: middle; }
+        .gnode text.s { font: 700 10px system-ui, sans-serif; text-anchor: middle; letter-spacing: .06em; }
+        .gnode text.i { font-size: 26px; text-anchor: middle; dominant-baseline: central; }
+        .gnode.ok .core { fill: #12362c; stroke: #34d399; } .gnode.ok text.s { fill: #34d399; }
+        .gnode.problem .core { fill: #3b1518; stroke: #f87171; } .gnode.problem text.s { fill: #f87171; }
+        .gnode.pending .core { fill: #172033; stroke: #475569; stroke-dasharray: 5 5; } .gnode.pending text.s { fill: #64748b; } .gnode.pending text.i { opacity: .45; }
+        .gnode .core { stroke-width: 3; }
+        .gnode.ok .halo { fill: #34d399; } .gnode.problem .halo { fill: #f87171; } .gnode.pending .halo { fill: #64748b; }
+        .gnode.problem .pulse { fill: none; stroke: #f87171; stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: pulse 1.6s ease-out infinite; }
+        .gnode .sel-ring { fill: none; stroke: #fff; stroke-width: 2; stroke-dasharray: 3 5; opacity: 0; }
+        .gnode.sel .sel-ring { opacity: .9; }
+        .aibadge rect { fill: #f59e0b; } .aibadge text { fill: #1c1100; font: 800 10px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+        .edge { fill: none; stroke-width: 3; stroke-linecap: round; }
+        .edge.ok { stroke: #34d399; stroke-dasharray: 8 10; animation: flow 1.1s linear infinite; }
+        .edge.bad { stroke: #f87171; stroke-dasharray: 3 9; }
+        .edge.wait { stroke: #334155; stroke-dasharray: 2 9; }
+        .cross { stroke: #f87171; stroke-width: 4; stroke-linecap: round; }
+        .crossbg { fill: #0e1726; stroke: #f87171; stroke-width: 2; }
+        .grp { fill: #64748b; font: 600 10px system-ui, sans-serif; letter-spacing: .12em; }
+        .hint { font-size: 12px; color: var(--muted); margin: -6px 0 12px; text-align: center; }
+        .detail { margin-bottom: 14px; }
+        @keyframes flow { to { stroke-dashoffset: -18; } }
+        @keyframes pulse { from { transform: scale(1); opacity: .9; } to { transform: scale(1.7); opacity: 0; } }
+        @media (prefers-reduced-motion: reduce) { .edge.ok, .gnode.problem .pulse { animation: none; } }
         @media (max-width: 520px) { td:first-child { width: auto; } }
     </style>
 </head>
@@ -93,6 +131,37 @@
         };
         function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
+        function nodeCard(n, i) {
+            const card = el("div", "card");
+            const head = el("div", "head");
+            head.appendChild(el("h2", "", `${i + 1}. ${n.title}`));
+            head.appendChild(el("span", "state", WORD[n.state]));
+            head.appendChild(el("span", "tag " + n.kind, n.kind === "ai" ? "AI suggestion" : "Verified fact"));
+            card.appendChild(head);
+            card.appendChild(el("p", "summ", n.summary));
+            if (n.problems.length > 1) {
+                const ul = el("ul", "probs"); n.problems.forEach(p => ul.appendChild(el("li", "", p))); card.appendChild(ul);
+            }
+            if (n.ai) {
+                card.appendChild(el("div", "ai-box", `AI suggestion: ${n.ai.suggestion || "none"}` + (n.ai.model ? ` (${n.ai.model})` : "") + `. ${n.ai.note}`));
+            }
+            if (n.facts.length || n.records.length) {
+                const det = el("details"); det.open = true; det.appendChild(el("summary", "", "Evidence and record ids"));
+                if (n.facts.length) {
+                    const t = el("table");
+                    n.facts.forEach(f => { const tr = el("tr"); tr.appendChild(el("td", "", f.label)); tr.appendChild(el("td", "", f.value)); t.appendChild(tr); });
+                    det.appendChild(t);
+                }
+                if (n.records.length) {
+                    const t = el("table");
+                    n.records.forEach(r => { const tr = el("tr"); tr.appendChild(el("td", "", r.type)); tr.appendChild(el("td", "rec", r.id)); t.appendChild(tr); });
+                    det.appendChild(t);
+                }
+                card.appendChild(det);
+            }
+            return card;
+        }
+
         function render(d) {
             const out = $("out"); out.textContent = "";
             const s = el("div", "summary");
@@ -104,40 +173,90 @@
             lg.appendChild(el("span", "tag ai", "AI suggestion")); lg.appendChild(el("span", "", d.legend.ai));
             s.appendChild(lg);
             out.appendChild(s);
-            const chain = el("div", "chain");
-            d.chain.forEach((n, i) => {
-                const row = el("div", "node " + n.state);
-                row.appendChild(el("div", "dot", SYMBOL[n.state]));
-                const card = el("div", "card");
-                const head = el("div", "head");
-                head.appendChild(el("h2", "", `${i + 1}. ${n.title}`));
-                head.appendChild(el("span", "state", WORD[n.state]));
-                head.appendChild(el("span", "tag " + n.kind, n.kind === "ai" ? "AI suggestion" : "Verified fact"));
-                card.appendChild(head);
-                card.appendChild(el("p", "summ", n.summary));
-                if (n.problems.length > 1) {
-                    const ul = el("ul", "probs"); n.problems.forEach(p => ul.appendChild(el("li", "", p))); card.appendChild(ul);
+            // hero: verdict ring + progress meter
+            const NS = "http://www.w3.org/2000/svg";
+            const sv = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in (attrs || {})) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+            const VCOL = { complete: "#0b6b4f", incomplete: "#6b6a63", broken: "#b3261e" };
+            const c = d.counts || { ok: 0, problem: 0, pending: 0 }, total = d.chain.length;
+            const hero = el("div", "hero");
+            const ring = sv("svg", { class: "ring", viewBox: "0 0 64 64", "aria-hidden": "true" });
+            ring.appendChild(sv("circle", { cx: 32, cy: 32, r: 27, fill: "none", stroke: "#e4e2da", "stroke-width": 7 }));
+            const circ = 2 * Math.PI * 27;
+            ring.appendChild(sv("circle", { cx: 32, cy: 32, r: 27, fill: "none", stroke: VCOL[d.verdict] || "#6b6a63", "stroke-width": 7, "stroke-linecap": "round",
+                "stroke-dasharray": `${circ * (c.ok / total)} ${circ}`, transform: "rotate(-90 32 32)" }));
+            ring.appendChild(sv("text", { x: 32, y: 33, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 17, "font-weight": 700, fill: VCOL[d.verdict] || "#6b6a63" }, `${c.ok}/${total}`));
+            hero.appendChild(ring);
+            const meter = el("div", "meter");
+            meter.appendChild(el("div", "nums", "Links in the evidence chain"));
+            const bar = el("div", "bar");
+            [["ok", "#0b6b4f"], ["problem", "#b3261e"], ["pending", "#cfcdc4"]].forEach(([k, col]) => { const i = el("i"); i.style.width = (100 * (c[k] || 0) / total) + "%"; i.style.background = col; bar.appendChild(i); });
+            meter.appendChild(bar);
+            meter.appendChild(el("div", "nums", `${c.ok} proven \u00b7 ${c.problem} problem \u00b7 ${c.pending} not reached yet`));
+            hero.appendChild(meter);
+            out.appendChild(hero);
+
+            // the graph: three inputs converge on the invoice, then a straight run to reconcile
+            const POS = { vendor: [110, 105], po: [110, 260], delivery: [110, 415], invoice: [350, 260], approval: [545, 260], payout: [735, 260],
+                          webhook: [900, 110], ledger: [900, 260], reconcile: [900, 410] };
+            const ICON = { vendor: "\ud83c\udfe2", invoice: "\ud83e\uddfe", po: "\ud83d\udccb", delivery: "\ud83d\udce6", approval: "\u270d\ufe0f",
+                           payout: "\ud83d\udcb8", webhook: "\ud83d\udd14", ledger: "\ud83d\udcd2", reconcile: "\u2696\ufe0f" };
+            const EDGES = [["vendor", "invoice"], ["po", "invoice"], ["delivery", "invoice"], ["invoice", "approval"], ["approval", "payout"],
+                           ["payout", "webhook"], ["webhook", "ledger"], ["ledger", "reconcile"]];
+            const byKey = {}; d.chain.forEach((n, i) => { byKey[n.key] = { n, i }; });
+            const svg = sv("svg", { viewBox: "0 0 1000 500", role: "img", "aria-label": "Evidence graph from vendor to reconcile" });
+            svg.appendChild(sv("text", { class: "grp", x: 110, y: 28, "text-anchor": "middle" }, "WHAT WE CHECKED AGAINST"));
+            svg.appendChild(sv("text", { class: "grp", x: 545, y: 168, "text-anchor": "middle" }, "WHO LET THE MONEY GO"));
+            svg.appendChild(sv("text", { class: "grp", x: 900, y: 28, "text-anchor": "middle" }, "PROOF IT HAPPENED"));
+            EDGES.forEach(([a, b]) => {
+                if (!byKey[a] || !byKey[b]) return;
+                const A = POS[a], B = POS[b], sa = byKey[a].n.state, sb = byKey[b].n.state;
+                const toInvoice = b === "invoice";
+                const bad = toInvoice ? sa === "problem" : (sa === "problem" || sb === "problem");
+                const cls = bad ? "bad" : (sa === "ok" && sb === "ok") ? "ok" : (sa === "ok" && toInvoice && sb === "problem") ? "ok" : "wait";
+                const mx = (A[0] + B[0]) / 2;
+                const path = sv("path", { class: "edge " + cls, d: `M ${A[0]} ${A[1]} C ${mx} ${A[1]}, ${mx} ${B[1]}, ${B[0]} ${B[1]}` });
+                svg.appendChild(path);
+                if (bad) {
+                    const my = (A[1] + B[1]) / 2, g = sv("g");
+                    g.appendChild(sv("circle", { class: "crossbg", cx: mx, cy: my, r: 13 }));
+                    g.appendChild(sv("path", { class: "cross", d: `M ${mx - 5} ${my - 5} L ${mx + 5} ${my + 5} M ${mx + 5} ${my - 5} L ${mx - 5} ${my + 5}` }));
+                    svg.appendChild(g);
                 }
-                if (n.ai) {
-                    card.appendChild(el("div", "ai-box", `AI suggestion: ${n.ai.suggestion || "none"}` + (n.ai.model ? ` (${n.ai.model})` : "") + `. ${n.ai.note}`));
-                }
-                if (n.facts.length || n.records.length) {
-                    const det = el("details"); det.appendChild(el("summary", "", "Evidence and record ids"));
-                    if (n.facts.length) {
-                        const t = el("table");
-                        n.facts.forEach(f => { const tr = el("tr"); tr.appendChild(el("td", "", f.label)); tr.appendChild(el("td", "", f.value)); t.appendChild(tr); });
-                        det.appendChild(t);
-                    }
-                    if (n.records.length) {
-                        const t = el("table");
-                        n.records.forEach(r => { const tr = el("tr"); tr.appendChild(el("td", "", r.type)); tr.appendChild(el("td", "rec", r.id)); t.appendChild(tr); });
-                        det.appendChild(t);
-                    }
-                    card.appendChild(det);
-                }
-                row.appendChild(card); chain.appendChild(row);
             });
-            out.appendChild(chain);
+            const detail = el("div", "detail");
+            const nodeEls = [];
+            const select = key => {
+                nodeEls.forEach(g => g.classList.toggle("sel", g.dataset.key === key));
+                detail.textContent = ""; detail.appendChild(nodeCard(byKey[key].n, byKey[key].i));
+            };
+            d.chain.forEach(n => {
+                const [x, y] = POS[n.key] || [500, 250];
+                const g = sv("g", { class: "gnode " + n.state, tabindex: 0, role: "button", "aria-label": `${n.title}: ${WORD[n.state]}` });
+                g.dataset.key = n.key;
+                g.appendChild(sv("circle", { class: "halo", cx: x, cy: y, r: 50 }));
+                if (n.state === "problem") g.appendChild(sv("circle", { class: "pulse", cx: x, cy: y, r: 36 }));
+                g.appendChild(sv("circle", { class: "core", cx: x, cy: y, r: 36 }));
+                g.appendChild(sv("circle", { class: "sel-ring", cx: x, cy: y, r: 45 }));
+                g.appendChild(sv("text", { class: "i", x, y: y + 1 }, ICON[n.key] || "\u2022"));
+                g.appendChild(sv("text", { class: "t", x, y: y + 60 }, n.title));
+                g.appendChild(sv("text", { class: "s", x, y: y + 75 }, n.state === "ok" ? "\u2713 VERIFIED" : n.state === "problem" ? "\u2717 PROBLEM" : "NOT REACHED YET"));
+                if (n.kind === "ai") {
+                    const b = sv("g", { class: "aibadge" });
+                    b.appendChild(sv("rect", { x: x + 18, y: y - 48, width: 30, height: 18, rx: 9 }));
+                    b.appendChild(sv("text", { x: x + 33, y: y - 39 }, "AI"));
+                    g.appendChild(b);
+                }
+                g.addEventListener("click", () => select(n.key));
+                g.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.key); } });
+                svg.appendChild(g); nodeEls.push(g);
+            });
+            const stage = el("div", "stage"); stage.appendChild(svg);
+            out.appendChild(stage);
+            out.appendChild(el("div", "hint", "Click any node to see the evidence. Green moving line: proven. Red cut line: broken. Grey dots: not reached yet. Amber AI tag: a suggestion, never a fact."));
+            out.appendChild(detail);
+            const firstBad = d.chain.find(n => n.state === "problem");
+            const lastOk = [...d.chain].reverse().find(n => n.state === "ok") || d.chain[0];
+            select((firstBad || lastOk).key);
         }
 
         function idsLine(records) {
