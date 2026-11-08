@@ -30,9 +30,12 @@
 @media(prefers-reduced-motion:reduce){.pmui-toast,.pmui-ov,.pmui-dlg{animation:none}.pmui-toast .life{display:none}}`;
     const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
     let host;
-    function ensure() {
-        if (host && host.isConnected) return;
+    function injectCss() {
         if (!document.getElementById("pmui-css")) { const s = el("style"); s.id = "pmui-css"; s.textContent = css; document.head.appendChild(s); }
+    }
+    function ensure() {
+        injectCss();
+        if (host && host.isConnected) return;
         host = el("div", "pmui-toasts"); host.setAttribute("role", "status"); host.setAttribute("aria-live", "polite");
         document.body.appendChild(host);
     }
@@ -56,6 +59,7 @@
     }
     function dialog(title, intro, fields, opts) {
         opts = opts || {};
+        injectCss();
         return new Promise(resolve => {
             const prev = document.activeElement;
             const ov = el("div", "pmui-ov");
