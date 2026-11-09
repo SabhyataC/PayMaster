@@ -22,6 +22,12 @@
         code { display: block; word-break: break-all; background: #0e1726; color: #7fd1b9; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
         button { padding: 8px 14px; border: 0; border-radius: 8px; background: var(--ok); color: #fff; font: inherit; font-weight: 600; cursor: pointer; } button.ghost { background: #fff; color: var(--ink); border: 1px solid #cfcdc4; }
         .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; } .box { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-top: 14px; } .box h3 { margin: 0 0 6px; font-size: 14px; }
+        .hero.busy { border-left-color: var(--blue); background: linear-gradient(120deg, #eef3fb, #fff 60%); } .busy .shield .body { fill: #1f4e8c; stroke: #163a6b; animation: shp 1.1s ease-in-out infinite; } @keyframes shp { 50% { opacity: .55; } }
+        .busy .shield .mark { display: none; }
+        .chain i.pulse { border-color: var(--blue); animation: lcl 1s ease-in-out infinite; } @keyframes lcl { 50% { transform: translateY(-4px); background: #dce8fa; } }
+        button.spin::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: rot .7s linear infinite; } @keyframes rot { to { transform: rotate(360deg); } }
+        button:disabled { opacity: .85; cursor: progress; }
+        @media (prefers-reduced-motion: reduce) { .busy .shield .body, .chain i.pulse, button.spin::before { animation: none !important; } }
         @media (prefers-reduced-motion: reduce) { .shield .mark { animation: none !important; stroke-dashoffset: 0; } }
     
         body { margin: 0; background: #f4f5f2; color: #1c1b18; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -39,7 +45,7 @@
             <div><h2 id="h">Checking the chain&hellip;</h2><p id="p">Recomputing every link.</p><div class="chain" id="chain"></div></div></div>
         <div class="stats" id="stats"></div>
         <div class="box"><h3>Head hash</h3><p class="sub" style="margin:0 0 8px">A fingerprint of the whole log up to now. Keep a copy somewhere outside the database; if it ever differs for the same position, the log was rewritten.</p><code id="head">&ndash;</code>
-            <div class="row"><button type="button" id="again">Verify now</button><button type="button" class="ghost" id="copy">Copy head hash</button><button type="button" class="ghost" id="proof">Download proof (JSON)</button></div></div>
+            <div class="row"><button type="button" id="again">Verify now</button><span id="lastcheck" class="sub" style="margin:0;align-self:center"></span><button type="button" class="ghost" id="copy">Copy head hash</button><button type="button" class="ghost" id="proof">Download proof (JSON)</button></div></div>
         <div class="box"><h3>How it works</h3><p class="sub" style="margin:0">Database rules refuse any change or deletion of an audit row. A background process chains the rows with SHA-256 within seconds of being written. Verifying recomputes the full chain and also checks that nothing was removed from its end.</p></div>
     </main>
     </div>
@@ -52,28 +58,53 @@
         function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined && text !== null) e.textContent = text; return e; }
         let last = null;
         function card(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", n)); c.appendChild(el("div", "h", h)); return c; }
-        async function verify() {
-            $("again").disabled = true;
-            try {
-                const r = await fetch(`${API}/audit/chain/verify`); if (!r.ok) { $("h").textContent = `Could not verify (error ${r.status})`; return; }
-                const d = last = await r.json(), hero = $("hero");
-                hero.className = "hero " + (d.ok ? "ok" : "bad");
-                $("h").textContent = d.ok ? (d.checked ? "The audit log is intact" : "Nothing recorded yet") : "The audit log has been tampered with";
-                $("p").textContent = d.ok ? `${d.checked} entries are chained and every link checks out.` : `Entry #${d.broken_at}: ${d.reason}.`;
-                const ch = $("chain"); ch.textContent = ""; const n = Math.min(d.checked || 0, 22);
-                for (let i = 0; i < n; i++) { const k = el("i"); if (!d.ok && d.broken_at && i + 1 >= Math.min(d.broken_at, n)) k.className = "x"; ch.appendChild(k); }
-                const s = $("stats"); s.textContent = "";
-                s.appendChild(card("Entries chained", String(d.checked), d.chain_started ? "since " + new Date(d.chain_started).toLocaleDateString() : "none yet"));
-                s.appendChild(card("Waiting to be chained", String(d.waiting_to_be_sealed), "new entries are chained within seconds"));
-                s.appendChild(card("Result", d.ok ? "Valid" : "Broken", d.ok ? "no edits, deletions or reordering" : "see the message above"));
-                $("head").textContent = d.head || "–";
-            } catch (e) { $("h").textContent = "Cannot reach the API"; }
-            $("again").disabled = false;
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const STEPS = ["Chaining any new entries\u2026", "Recomputing every link from the first entry\u2026", "Comparing with the saved head record\u2026"];
+        let busy = false, stepTimer = null;
+        function setBusy(on) {
+            busy = on; const b = $("again"), hero = $("hero");
+            b.disabled = on; b.textContent = on ? "Verifying\u2026" : "Verify now"; b.classList.toggle("spin", on);
+            clearInterval(stepTimer);
+            if (on) {
+                hero.className = "hero busy"; $("h").textContent = "Verifying the audit log\u2026"; let i = 0; $("p").textContent = STEPS[0];
+                stepTimer = setInterval(() => { i = (i + 1) % STEPS.length; $("p").textContent = STEPS[i]; }, 700);
+                $("chain").textContent = ""; for (let k = 0; k < 14; k++) { const x = el("i", "pulse"); x.style.animationDelay = (k * 0.08) + "s"; $("chain").appendChild(x); }
+            }
         }
-        $("again").onclick = verify;
+        async function verify(manual) {
+            if (busy) return;
+            setBusy(true);
+            const started = Date.now();
+            let d = null, err = null;
+            try {
+                const r = await fetch(`${API}/audit/chain/verify`);
+                if (r.ok) d = await r.json(); else err = r.status === 404 ? "The server does not have this feature yet. Restart it after applying the update." : `The server answered with error ${r.status}.`;
+            } catch (e) { err = "Cannot reach the API. Is the server running?"; }
+            const wait = 1300 - (Date.now() - started); if (wait > 0) await sleep(wait);   // long enough to see that something happened
+            setBusy(false);
+            if (err) {
+                $("hero").className = "hero bad"; $("h").textContent = "Could not verify"; $("p").textContent = err; $("chain").textContent = "";
+                $("lastcheck").textContent = "Verification failed at " + new Date().toLocaleTimeString();
+                PM.toast("Verification failed. " + err, "error"); return;
+            }
+            last = d; const hero = $("hero");
+            hero.className = "hero " + (d.ok ? "ok" : "bad");
+            $("h").textContent = d.ok ? (d.checked ? "The audit log is intact" : "Nothing recorded yet") : "The audit log has been tampered with";
+            $("p").textContent = d.ok ? `${d.checked} entries are chained and every link checks out.` : `Entry #${d.broken_at}: ${d.reason}.`;
+            const ch = $("chain"); ch.textContent = ""; const n = Math.min(d.checked || 0, 22);
+            for (let i = 0; i < n; i++) { const k = el("i"); if (!d.ok && d.broken_at && i + 1 >= Math.min(d.broken_at, n)) k.className = "x"; ch.appendChild(k); }
+            const st = $("stats"); st.textContent = "";
+            st.appendChild(card("Entries chained", String(d.checked), d.chain_started ? "since " + new Date(d.chain_started).toLocaleDateString() : "none yet"));
+            st.appendChild(card("Waiting to be chained", String(d.waiting_to_be_sealed), "new entries are chained within seconds"));
+            st.appendChild(card("Result", d.ok ? "Valid" : "Broken", d.ok ? "no edits, deletions or reordering" : "see the message above"));
+            $("head").textContent = d.head || "\u2013";
+            $("lastcheck").textContent = "Last verified " + new Date().toLocaleTimeString();
+            if (manual) PM.toast(d.ok ? `Verified: all ${d.checked} entries are intact` : `Tampering detected at entry #${d.broken_at}`, d.ok ? "ok" : "error");
+        }
+        $("again").onclick = () => verify(true);
         $("copy").onclick = async () => { try { await navigator.clipboard.writeText(last && last.head || ""); PM.toast("Head hash copied", "ok"); } catch (e) { PM.toast("Could not copy", "error"); } };
         $("proof").onclick = () => { if (!last) return; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify({ verified_at: new Date().toISOString(), ...last }, null, 2)], { type: "application/json" })); a.download = "audit-integrity-proof.json"; a.click(); };
-        verify();
+        verify(false);
     </script>
 </body>
 
