@@ -4,95 +4,277 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="layout.css">
     <title>PayMaster: Team and settings</title>
     <style>
-        body { margin: 0; min-height: 100vh; background: #f7f6f2; color: #1c1b18; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-        .wrap { max-width: 880px; margin: 24px auto; padding: 0 16px; }
-        .card { background: #fff; border: 1px solid #e4e2da; border-radius: 12px; padding: 22px; margin-bottom: 18px; }
-        h1 { font-size: 1.4rem; margin: 0 0 4px; }
-        h2 { font-size: 1.05rem; margin: 0 0 10px; }
-        .sub { color: #6b6a63; margin: 0 0 14px; font-size: .9rem; }
-        label { display: block; font-size: .85rem; margin: 12px 0 4px; }
-        input, select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #cfcdc4; border-radius: 8px; font: inherit; }
-        button { padding: 8px 14px; border: 0; border-radius: 8px; background: #0b6b4f; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-        button.ghost { background: #fff; color: #0b6b4f; border: 1px solid #0b6b4f; }
-        button:disabled { opacity: .6; cursor: default; }
-        .msg { font-size: .9rem; margin-top: 10px; min-height: 1.2em; }
-        .err { color: #b4531a; }
-        .ok { color: #0b6b4f; }
-        a { color: #0b6b4f; }
-        table { width: 100%; border-collapse: collapse; font-size: .92rem; }
-        th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eceae2; vertical-align: middle; }
-        td select { width: auto; padding: 5px 8px; }
-        .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
-        code { background: #f1efe8; padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+        body {
+            margin: 0;
+            background: #f4f5f2;
+            color: #1c1b18;
+            font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .wrap {
+            max-width: 1500px;
+            margin: 0;
+            padding: 22px 28px;
+            min-width: 0;
+        }
+
+        .card {
+            background: #fff;
+            border: 1px solid #e4e2da;
+            border-radius: 12px;
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            margin: 0 0 4px;
+        }
+
+        h2 {
+            font-size: 1.05rem;
+            margin: 0 0 10px;
+        }
+
+        .sub {
+            color: #6b6a63;
+            margin: 0 0 14px;
+            font-size: .9rem;
+        }
+
+        label {
+            display: block;
+            font-size: .85rem;
+            margin: 12px 0 4px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 10px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        button {
+            padding: 8px 14px;
+            border: 0;
+            border-radius: 8px;
+            background: #0b6b4f;
+            color: #fff;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.ghost {
+            background: #fff;
+            color: #0b6b4f;
+            border: 1px solid #0b6b4f;
+        }
+
+        button:disabled {
+            opacity: .6;
+            cursor: default;
+        }
+
+        .msg {
+            font-size: .9rem;
+            margin-top: 10px;
+            min-height: 1.2em;
+        }
+
+        .err {
+            color: #b4531a;
+        }
+
+        .ok {
+            color: #0b6b4f;
+        }
+
+        a {
+            color: #0b6b4f;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .92rem;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 8px 6px;
+            border-bottom: 1px solid #eceae2;
+            vertical-align: middle;
+        }
+
+        td select {
+            width: auto;
+            padding: 5px 8px;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 10px;
+            align-items: end;
+        }
+
+        code {
+            background: #f1efe8;
+            padding: 2px 6px;
+            border-radius: 6px;
+            word-break: break-all;
+        }
+
+        input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        label:has(> input[type="checkbox"]) {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+        }
+
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 10px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        .row {
+            grid-template-columns: repeat(auto-fit, minmax(170px, 320px));
+        }
+
+        .row:has(textarea),
+        .row:has(#al_test) {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        @media (max-width: 800px) {
+
+            .row:has(textarea),
+            .row:has(#al_test) {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 
 <body>
-    <div class="wrap">
-        <p><a href="index.html">&larr; Back to the console</a></p>
-        <div class="card">
+    <div class="app">
+        <div id="sidebar"></div>
+        <div class="wrap">
             <h1>Team</h1>
-            <p class="sub">Viewers can look. Reviewers can upload, decide and release payments. Admins also manage vendors, purchase orders and people. A company always keeps at least one active admin.</p>
-            <table>
-                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
-                <tbody id="members"></tbody>
-            </table>
-            <div class="msg" id="tmsg"></div>
-            <div id="tokenbox"></div>
-        </div>
-        <div class="card">
-            <h2>Add a person</h2>
-            <p class="sub">They log in with the temporary password and must choose their own before they can do anything.</p>
-            <div class="row">
-                <div><label for="n_name">Full name</label><input id="n_name"></div>
-                <div><label for="n_email">Email</label><input id="n_email" type="email"></div>
-                <div><label for="n_role">Role</label>
-                    <select id="n_role"><option>viewer</option><option>reviewer</option><option>admin</option></select></div>
-                <div><label for="n_pw">Temporary password</label><input id="n_pw" type="password" autocomplete="new-password"></div>
-                <div><button id="add">Add person</button></div>
+            <p class="sub">Viewers can look. Reviewers can upload, decide and release payments. Admins also manage
+                vendors, purchase orders and people. A company always keeps at least one active admin.</p>
+            <!-- <p><a href="index.html">&larr; Back to the console</a></p> -->
+            <div class="card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="members"></tbody>
+                </table>
+                <div class="msg" id="tmsg"></div>
+                <div id="tokenbox"></div>
             </div>
-            <div class="msg" id="amsg"></div>
-        </div>
-        <div class="card">
-            <h2>Automatic payment limit</h2>
-            <p class="sub">Invoices above this amount are always held for a person. Leave empty for the built-in default.</p>
-            <div class="row">
-                <div><label for="limit">Limit (per invoice)</label><input id="limit" inputmode="decimal"></div>
-                <div><button id="savelimit">Save limit</button></div>
+            <div class="card">
+                <h2>Add a person</h2>
+                <p class="sub">They log in with the temporary password and must choose their own before they can do
+                    anything.</p>
+                <div class="row">
+                    <div><label for="n_name">Full name</label><input id="n_name"></div>
+                    <div><label for="n_email">Email</label><input id="n_email" type="email"></div>
+                    <div><label for="n_role">Role</label>
+                        <select id="n_role">
+                            <option>viewer</option>
+                            <option>reviewer</option>
+                            <option>admin</option>
+                        </select>
+                    </div>
+                    <div><label for="n_pw">Temporary password</label><input id="n_pw" type="password"
+                            autocomplete="new-password"></div>
+                    <div><button id="add">Add person</button></div>
+                </div>
+                <div class="msg" id="amsg"></div>
             </div>
-            <div class="msg" id="lmsg"></div>
-        </div>
-        <div class="card">
-            <h2>Four-eyes rule</h2>
-            <p class="sub">When on, the person who uploaded an invoice cannot approve or release it; another admin or reviewer must. Turn it off only for a one-person or demo company.</p>
-            <div class="row">
-                <div><label><input type="checkbox" id="foureyes"> Require a second person to release</label></div>
-                <div><button id="savefe">Save</button></div>
+            <div class="card">
+                <h2>Automatic payment limit</h2>
+                <p class="sub">Invoices above this amount are always held for a person. Leave empty for the built-in
+                    default.</p>
+                <div class="row">
+                    <div><label for="limit">Limit (per invoice)</label><input id="limit" inputmode="decimal"></div>
+                    <div><button id="savelimit">Save limit</button></div>
+                </div>
+                <div class="msg" id="lmsg"></div>
             </div>
-            <div class="msg" id="fmsg"></div>
-        </div>
-        <div class="card">
-            <h2>Alerts by email and WhatsApp</h2>
-            <p class="sub">Get a message when something needs a person. Messages never contain bank details, only the invoice number, vendor, amount and a short reason.</p>
-            <div id="alertserver" class="sub"></div>
-            <div class="row">
-                <div><label><input type="checkbox" id="al_on"> Alerts are on</label></div>
+            <div class="card">
+                <h2>Four-eyes rule</h2>
+                <p class="sub">When on, the person who uploaded an invoice cannot approve or release it; another admin
+                    or reviewer must. Turn it off only for a one-person or demo company.</p>
+                <div class="row">
+                    <div><label><input type="checkbox" id="foureyes"> Require a second person to release</label></div>
+                    <div><button id="savefe">Save</button></div>
+                </div>
+                <div class="msg" id="fmsg"></div>
             </div>
-            <div class="row">
-                <div style="flex:1;min-width:240px"><label for="al_email">Email addresses (one per line, up to 5)</label><textarea id="al_email" rows="3" style="width:100%"></textarea></div>
-                <div style="flex:1;min-width:240px"><label for="al_wa">WhatsApp numbers with country code (one per line, up to 5)</label><textarea id="al_wa" rows="3" style="width:100%" placeholder="+919876543210"></textarea></div>
+            <div class="card">
+                <h2>Alerts by email and WhatsApp</h2>
+                <p class="sub">Get a message when something needs a person. Messages never contain bank details, only
+                    the invoice number, vendor, amount and a short reason.</p>
+                <div id="alertserver" class="sub"></div>
+                <div class="row">
+                    <div><label><input type="checkbox" id="al_on"> Alerts are on</label></div>
+                </div>
+                <div class="row">
+                    <div style="flex:1;min-width:240px"><label for="al_email">Email addresses (one per line, up to
+                            5)</label><textarea id="al_email" rows="3" style="width:100%"></textarea></div>
+                    <div style="flex:1;min-width:240px"><label for="al_wa">WhatsApp numbers with country code (one per
+                            line, up to 5)</label><textarea id="al_wa" rows="3" style="width:100%"
+                            placeholder="+919876543210"></textarea></div>
+                </div>
+                <div id="al_events" style="margin:8px 0"></div>
+                <div class="row">
+                    <div><button id="al_save">Save alerts</button></div>
+                    <div><button id="al_test" class="secondary">Send a test message</button></div>
+                </div>
+                <div class="msg" id="al_msg"></div>
+                <table class="tbl" id="al_logt" style="display:none">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Alert</th>
+                            <th>Channel</th>
+                            <th>To</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody id="al_log"></tbody>
+                </table>
             </div>
-            <div id="al_events" style="margin:8px 0"></div>
-            <div class="row">
-                <div><button id="al_save">Save alerts</button></div>
-                <div><button id="al_test" class="secondary">Send a test message</button></div>
-            </div>
-            <div class="msg" id="al_msg"></div>
-            <table class="tbl" id="al_logt" style="display:none"><thead><tr><th>When</th><th>Alert</th><th>Channel</th><th>To</th><th>Result</th></tr></thead><tbody id="al_log"></tbody></table>
         </div>
     </div>
+    <script src="layout.js"></script>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
     <script>
@@ -120,7 +302,7 @@
             $("members").innerHTML = r.data.items.map(m => `<tr>
                 <td>${esc(m.full_name)}</td><td>${esc(m.email)}</td>
                 <td><select data-role="${esc(m.id)}">${["viewer", "reviewer", "admin"].map(x =>
-                    `<option${x === m.role ? " selected" : ""}>${x}</option>`).join("")}</select></td>
+                `<option${x === m.role ? " selected" : ""}>${x}</option>`).join("")}</select></td>
                 <td>${m.disabled ? "disabled" : "active"}</td>
                 <td><button class="ghost" data-toggle="${esc(m.id)}" data-off="${m.disabled ? "0" : "1"}">${m.disabled ? "Enable" : "Disable"}</button>
                     <button class="ghost" data-reset="${esc(m.id)}">Reset password</button></td></tr>`).join("");
@@ -151,7 +333,8 @@
 
         $("add").onclick = async () => {
             const r = await call("/admin/users", "POST", {
-                full_name: $("n_name").value, email: $("n_email").value, role: $("n_role").value, temp_password: $("n_pw").value });
+                full_name: $("n_name").value, email: $("n_email").value, role: $("n_role").value, temp_password: $("n_pw").value
+            });
             $("amsg").className = "msg " + (r.ok ? "ok" : "err");
             $("amsg").textContent = r.ok ? "Person added." : detail(r.data);
             if (r.ok) { $("n_name").value = $("n_email").value = $("n_pw").value = ""; load(); }

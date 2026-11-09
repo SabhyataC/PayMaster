@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="layout.css">
     <title>PayMaster: Vendors, POs, Deliveries</title>
     <style>
         :root {
@@ -24,69 +25,10 @@
             font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         }
 
-        .app {
-            display: grid;
-            grid-template-columns: 230px 1fr;
-            min-height: 100vh;
-        }
-
-        .side {
-            background: #10231c;
-            color: #cfe3da;
-            padding: 18px 12px;
-            display: flex;
-            flex-direction: column;
-            position: sticky;
-            top: 0;
-            height: 100vh;
-        }
-
-        .brand {
-            font-weight: 700;
-            font-size: 19px;
-            color: #fff;
-            padding: 4px 10px 20px;
-        }
-
-        .brand span {
-            color: #4ad4a0;
-        }
-
-        .nav a {
-            display: block;
-            padding: 9px 12px;
-            border-radius: 8px;
-            color: #cfe3da;
-            text-decoration: none;
-            margin-bottom: 3px;
-        }
-
-        .nav a:hover {
-            background: #1a3a2f;
-        }
-
-        .nav a.active {
-            background: var(--brand);
-            color: #fff;
-        }
-
-        .side .foot {
-            margin-top: auto;
-            padding-top: 12px;
-            border-top: 1px solid #1f3d32;
-        }
-
-        .side .foot button {
-            width: 100%;
-            background: none;
-            border: 1px solid #3a5a4d;
-            color: #cfe3da;
-        }
-
         .main {
             padding: 22px 28px;
             min-width: 0;
-            max-width: 1100px;
+            max-width: 1500px;
         }
 
         .main h1 {
@@ -219,21 +161,7 @@
 
 <body>
     <div class="app">
-        <aside class="side">
-            <div class="brand">Pay<span>Master</span></div>
-            <nav class="nav">
-                <a href="index.html#overview">Overview</a>
-                <a href="index.html#invoices">Invoices</a>
-                <a href="index.html#review">Review queue</a>
-                <a href="index.html#exceptions">Exceptions</a>
-                <a href="index.html#payments">Payments &amp; ledger</a>
-                <a href="index.html#assistant">Ask &amp; Advise</a>
-                <a href="vendors.html" class="active">Vendors &amp; POs</a>
-                <a href="team.html" class="admin-only">Team &amp; settings</a>
-                <a href="account.html">My account</a>
-            </nav>
-            <div class="foot"><button id="logout">Log out</button></div>
-        </aside>
+        <div id="sidebar"></div>
         <main class="main">
             <h1>Vendors, POs, Deliveries</h1>
             <div class="tabs">
@@ -320,7 +248,7 @@
             </section>
         </main>
     </div>
-
+    <script src="layout.js"></script>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
     <script>
@@ -330,7 +258,6 @@
         function logout() { PM.logout(); }
         if (!PM.signedIn()) location.replace("login.html");
         else if (user && !user.company_id) location.replace("company.html");
-        $("logout").onclick = logout;
 
         const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
         const money = (n, cur) => Number(n).toFixed(2) + (cur ? " " + cur : "");

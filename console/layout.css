@@ -1,0 +1,86 @@
+.app {
+    display: grid;
+    grid-template-columns: 230px 1fr;
+    min-height: 100vh;
+}
+
+#sidebar {
+    display: contents;
+}
+
+.side {
+    background: #10231c;
+    color: #cfe3da;
+    padding: 18px 12px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
+
+.brand {
+    font-weight: 700;
+    font-size: 19px;
+    color: #fff;
+    padding: 4px 10px 20px;
+}
+
+.brand span {
+    color: #4ad4a0;
+}
+
+.nav a {
+    display: block;
+    padding: 9px 12px;
+    border-radius: 8px;
+    color: #cfe3da;
+    text-decoration: none;
+    cursor: pointer;
+    margin-bottom: 3px;
+}
+
+.nav a:hover {
+    background: #1a3a2f;
+}
+
+.nav a.active {
+    background: var(--brand, #0b6b4f);
+    color: #fff;
+}
+
+.nav hr {
+    border: 0;
+    border-top: 1px solid #1f3d32;
+    margin: 10px 0;
+}
+
+.side,
+.side * {
+    box-sizing: border-box;
+}
+
+.side .foot {
+    margin-top: auto;
+    padding: 12px 10px 0;
+    font-size: 12px;
+    border-top: 1px solid #1f3d32;
+}
+
+.side .foot button {
+    display: block;
+    margin-top: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: 1px solid #3a5a4d;
+    border-radius: 8px;
+    color: #cfe3da;
+    font: inherit;
+    font-weight: 400;
+    cursor: pointer;
+}
+
+.side .foot button:hover {
+    background: #1a3a2f;
+}

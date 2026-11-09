@@ -6,6 +6,7 @@
     <title>PayMaster Console</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-quartz.css">
+    <link rel="stylesheet" href="layout.css">
     <style>
         :root {
             --bg: #f4f5f2;
@@ -25,74 +26,6 @@
             background: var(--bg);
             color: var(--ink);
             font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        }
-
-        .app {
-            display: grid;
-            grid-template-columns: 230px 1fr;
-            min-height: 100vh;
-        }
-
-        .side {
-            background: #10231c;
-            color: #cfe3da;
-            padding: 18px 12px;
-            display: flex;
-            flex-direction: column;
-            position: sticky;
-            top: 0;
-            height: 100vh;
-        }
-
-        .brand {
-            font-weight: 700;
-            font-size: 19px;
-            color: #fff;
-            padding: 4px 10px 20px;
-        }
-
-        .brand span {
-            color: #4ad4a0;
-        }
-
-        .nav a {
-            display: block;
-            padding: 9px 12px;
-            border-radius: 8px;
-            color: #cfe3da;
-            text-decoration: none;
-            cursor: pointer;
-            margin-bottom: 3px;
-        }
-
-        .nav a:hover {
-            background: #1a3a2f;
-        }
-
-        .nav a.active {
-            background: var(--brand);
-            color: #fff;
-        }
-
-        .nav hr {
-            border: 0;
-            border-top: 1px solid #1f3d32;
-            margin: 10px 0;
-        }
-
-        .side .foot {
-            margin-top: auto;
-            padding: 12px 10px 0;
-            font-size: 12px;
-            border-top: 1px solid #1f3d32;
-        }
-
-        .side .foot button {
-            margin-top: 8px;
-            width: 100%;
-            background: none;
-            border: 1px solid #3a5a4d;
-            color: #cfe3da;
         }
 
         .main {
@@ -143,16 +76,58 @@
         }
 
         #cards .nextstep {
-            grid-column: 1 / -1; background: #fff4e5; border: 1px solid #f3d3a4; color: #7a4a00;
-            border-radius: 10px; padding: 10px 14px; font-weight: 600;
+            grid-column: 1 / -1;
+            background: #fff4e5;
+            border: 1px solid #f3d3a4;
+            color: #7a4a00;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-weight: 600;
         }
-        #cards .nextstep.ok { background: #e6f3ee; border-color: #b8dccd; color: #0b6b4f; }
-        .kpi { background: #fff; border: 1px solid #e4e2da; border-left: 4px solid #0b6b4f; border-radius: 12px; padding: 14px 16px; }
-        .kpi.go { cursor: pointer; }
-        .kpi.go:hover, .kpi.go:focus { border-color: #0b6b4f; outline: none; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
-        .kpi-t { font-size: 12px; color: #6b6a63; text-transform: uppercase; letter-spacing: .05em; }
-        .kpi-n { font-size: 28px; font-weight: 700; margin-top: 4px; }
-        .kpi-h { font-size: 12px; color: #6b6a63; margin-top: 2px; }
+
+        #cards .nextstep.ok {
+            background: #e6f3ee;
+            border-color: #b8dccd;
+            color: #0b6b4f;
+        }
+
+        .kpi {
+            background: #fff;
+            border: 1px solid #e4e2da;
+            border-left: 4px solid #0b6b4f;
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .kpi.go {
+            cursor: pointer;
+        }
+
+        .kpi.go:hover,
+        .kpi.go:focus {
+            border-color: #0b6b4f;
+            outline: none;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, .08);
+        }
+
+        .kpi-t {
+            font-size: 12px;
+            color: #6b6a63;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+
+        .kpi-n {
+            font-size: 28px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        .kpi-h {
+            font-size: 12px;
+            color: #6b6a63;
+            margin-top: 2px;
+        }
 
         #attn {
             background: #fff;
@@ -258,27 +233,7 @@
 
 <body>
     <div class="app">
-        <aside class="side">
-            <div class="brand">Pay<span>Master</span></div>
-            <nav class="nav">
-                <a data-v="overview" data-t="Overview" class="active">Overview</a>
-                <a data-v="invoices" data-t="Invoices">Invoices</a>
-                <a data-v="review" data-t="Review queue">Review queue</a>
-                <a data-v="exceptions" data-t="Exceptions">Exceptions</a>
-                <a data-v="payments" data-t="Payments and ledger">Payments &amp; ledger</a>
-                <a data-v="assistant" data-t="Ask and Advise">Ask &amp; Advise</a>
-                <hr>
-                <a href="approvals.html">Approval history</a>
-                <a href="reconcile.html">Reconciliation</a>
-                <a href="vendors.html">Vendors &amp; POs</a>
-                <a href="team.html" class="admin-only">Team &amp; settings</a>
-                <a href="account.html">My account</a>
-            </nav>
-            <div class="foot">
-                <div id="who"></div>
-                <button id="logout">Log out</button>
-            </div>
-        </aside>
+        <div id="sidebar"></div>
 
         <main class="main">
             <div class="top">
@@ -352,17 +307,21 @@
         </main>
     </div>
 
+    <script src="layout.js"></script>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
     <script src="overview.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
         const API = "http://localhost:8000";
+
         const pmUser = JSON.parse(localStorage.getItem("pm_user") || "null");
         if (!pmUser) location.replace("login.html");
         else if (pmUser && !pmUser.company_id) location.replace("company.html");
-        document.getElementById("who").textContent = pmUser ? `${pmUser.full_name} · ${pmUser.company_name || ""}` : "";
-        document.getElementById("logout").onclick = () => PM.logout();
+        window.layoutReady.then(() => {
+            document.getElementById("who").textContent = pmUser ? `${pmUser.full_name} · ${pmUser.company_name || ""}` : "";
+            document.getElementById("logout").onclick = () => PM.logout();
+        });
         const $ = (id) => document.getElementById(id);
 
         function actionsCell(p) {
@@ -829,8 +788,8 @@
                 ? `<div class="nextstep ok">\u2713 Nothing needs you right now.</div>`
                 : `<div class="nextstep">${need} thing${need === 1 ? "" : "s"} need${need === 1 ? "s" : ""} a person: `
                 + [s.held_count ? `${s.held_count} invoice${s.held_count === 1 ? "" : "s"} to decide` : "",
-                   s.open_exceptions ? `${s.open_exceptions} payment problem${s.open_exceptions === 1 ? "" : "s"}` : "",
-                   s.needs_review_documents ? `${s.needs_review_documents} document${s.needs_review_documents === 1 ? "" : "s"} to fix` : ""]
+                s.open_exceptions ? `${s.open_exceptions} payment problem${s.open_exceptions === 1 ? "" : "s"}` : "",
+                s.needs_review_documents ? `${s.needs_review_documents} document${s.needs_review_documents === 1 ? "" : "s"} to fix` : ""]
                     .filter(Boolean).join(", ") + ".</div>";
             return next
                 + card("Waiting for a person", s.held_count, s.held_count > 0, s.held_count ? "Open the review queue" : "All decided", "review")
@@ -918,12 +877,14 @@
                 { field: "currency", width: 100 },
                 { field: "status", width: 130, cellRenderer: badge },
                 { field: "paypal_batch_id", headerName: "PayPal batch", width: 170 },
-                { headerName: "Evidence", width: 130, sortable: false, filter: false, cellRenderer: (p) => {
-                    const a = document.createElement("a");
-                    a.textContent = "Trust graph"; a.href = "trust.html?payment=" + encodeURIComponent(p.data.id);
-                    a.addEventListener("click", (ev) => ev.stopPropagation());
-                    return a;
-                } },
+                {
+                    headerName: "Evidence", width: 130, sortable: false, filter: false, cellRenderer: (p) => {
+                        const a = document.createElement("a");
+                        a.textContent = "Trust graph"; a.href = "trust.html?payment=" + encodeURIComponent(p.data.id);
+                        a.addEventListener("click", (ev) => ev.stopPropagation());
+                        return a;
+                    }
+                },
                 { field: "created_at", headerName: "Created", flex: 1 },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
@@ -1056,11 +1017,14 @@
             document.querySelectorAll(".view").forEach(s => s.classList.toggle("active", s.id === "v-" + a.dataset.v));
             document.getElementById("ptitle").textContent = a.dataset.t;
         }
-        document.querySelectorAll(".nav a[data-v]").forEach(a => a.addEventListener("click", () => {
-            history.replaceState(null, "", "#" + a.dataset.v);
-            showView(a.dataset.v);
-        }));
-        showView(location.hash.slice(1));
+        window.layoutReady.then(() => {
+            document.querySelectorAll(".nav a[data-v]").forEach(a => a.addEventListener("click", e => {
+                e.preventDefault();
+                history.replaceState(null, "", "#" + a.dataset.v);
+                showView(a.dataset.v);
+            }));
+            showView(location.hash.slice(1));
+        });
     </script>
 </body>
 

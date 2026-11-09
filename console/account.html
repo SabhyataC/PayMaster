@@ -4,57 +4,188 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="layout.css">
     <title>PayMaster: My account</title>
     <style>
-        body { margin: 0; min-height: 100vh; background: #f7f6f2; color: #1c1b18; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-        .wrap { max-width: 440px; margin: 24px auto; padding: 0 16px; }
-        .card { background: #fff; border: 1px solid #e4e2da; border-radius: 12px; padding: 22px; margin-bottom: 18px; }
-        h1 { font-size: 1.4rem; margin: 0 0 4px; }
-        h2 { font-size: 1.05rem; margin: 0 0 10px; }
-        .sub { color: #6b6a63; margin: 0 0 14px; font-size: .9rem; }
-        label { display: block; font-size: .85rem; margin: 12px 0 4px; }
-        input, select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #cfcdc4; border-radius: 8px; font: inherit; }
-        button { padding: 8px 14px; border: 0; border-radius: 8px; background: #0b6b4f; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-        button.ghost { background: #fff; color: #0b6b4f; border: 1px solid #0b6b4f; }
-        button:disabled { opacity: .6; cursor: default; }
-        .msg { font-size: .9rem; margin-top: 10px; min-height: 1.2em; }
-        .err { color: #b4531a; }
-        .ok { color: #0b6b4f; }
-        a { color: #0b6b4f; }
-        table { width: 100%; border-collapse: collapse; font-size: .92rem; }
-        th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eceae2; vertical-align: middle; }
-        td select { width: auto; padding: 5px 8px; }
-        .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
-        code { background: #f1efe8; padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+        body {
+            margin: 0;
+            background: #f4f5f2;
+            color: #1c1b18;
+            font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .wrap {
+            max-width: 1500px;
+            margin: 0;
+            padding: 22px 28px;
+            min-width: 0;
+        }
+
+        .card {
+            background: #fff;
+            border: 1px solid #e4e2da;
+            border-radius: 12px;
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            align-items: start;
+        }
+
+        @media (max-width: 900px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            margin: 0 0 4px;
+        }
+
+        h2 {
+            font-size: 1.05rem;
+            margin: 0 0 10px;
+        }
+
+        .sub {
+            color: #6b6a63;
+            margin: 0 0 14px;
+            font-size: .9rem;
+        }
+
+        label {
+            display: block;
+            font-size: .85rem;
+            margin: 12px 0 4px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 10px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            font: inherit;
+        }
+
+        button {
+            padding: 8px 14px;
+            border: 0;
+            border-radius: 8px;
+            background: #0b6b4f;
+            color: #fff;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.ghost {
+            background: #fff;
+            color: #0b6b4f;
+            border: 1px solid #0b6b4f;
+        }
+
+        button:disabled {
+            opacity: .6;
+            cursor: default;
+        }
+
+        .msg {
+            font-size: .9rem;
+            margin-top: 10px;
+            min-height: 1.2em;
+        }
+
+        .err {
+            color: #b4531a;
+        }
+
+        .ok {
+            color: #0b6b4f;
+        }
+
+        a {
+            color: #0b6b4f;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .92rem;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 8px 6px;
+            border-bottom: 1px solid #eceae2;
+            vertical-align: middle;
+        }
+
+        td select {
+            width: auto;
+            padding: 5px 8px;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 10px;
+            align-items: end;
+        }
+
+        code {
+            background: #f1efe8;
+            padding: 2px 6px;
+            border-radius: 6px;
+            word-break: break-all;
+        }
+        
     </style>
 </head>
 
 <body>
-    <div class="wrap">
-        <div class="card" id="change">
-            <h1>Change your password</h1>
-            <p class="sub" id="sub">Choose a password only you know.</p>
-            <label for="cur">Current (or temporary) password</label>
-            <input id="cur" type="password" autocomplete="current-password">
-            <label for="new1">New password (10 to 72 characters)</label>
-            <input id="new1" type="password" autocomplete="new-password">
-            <label for="new2">New password again</label>
-            <input id="new2" type="password" autocomplete="new-password">
-            <p><button id="go">Change password</button></p>
-            <div class="msg" id="msg"></div>
-            <p class="sub"><a href="index.html" id="back">Back to the console</a> &middot; <a href="#" id="logout">Log out</a></p>
-        </div>
-        <div class="card" id="reset">
-            <h2>Forgot your password?</h2>
-            <p class="sub">Ask an admin of your company for a one-time reset token, then enter it here.</p>
-            <label for="tok">Reset token</label>
-            <input id="tok" autocomplete="off">
-            <label for="rnew">New password</label>
-            <input id="rnew" type="password" autocomplete="new-password">
-            <p><button class="ghost" id="rgo">Reset password</button></p>
-            <div class="msg" id="rmsg"></div>
+    <div class="app">
+        <div id="sidebar"></div>
+        <div class="wrap">
+            <h1>Account Setting</h1>
+            <p class="sub">Manage you account</p>
+            <div class="cards">
+                <div class="card" id="change">
+                    <h2>Change your password</h2>
+                    <p class="sub" id="sub">Choose a password only you know.</p>
+                    <label for="cur">Current (or temporary) password</label>
+                    <input id="cur" type="password" autocomplete="current-password">
+                    <label for="new1">New password (10 to 72 characters)</label>
+                    <input id="new1" type="password" autocomplete="new-password">
+                    <label for="new2">New password again</label>
+                    <input id="new2" type="password" autocomplete="new-password">
+                    <p><button id="go">Change password</button></p>
+                    <div class="msg" id="msg"></div>
+                    <p class="sub"><a href="index.html" id="back">Back to the console</a> &middot; <a href="#"
+                            id="logout">Log
+                            out</a></p>
+                </div>
+                <div class="card" id="reset">
+                    <h2>Forgot your password?</h2>
+                    <p class="sub">Ask an admin of your company for a one-time reset token, then enter it here.</p>
+                    <label for="tok">Reset token</label>
+                    <input id="tok" autocomplete="off">
+                    <label for="rnew">New password</label>
+                    <input id="rnew" type="password" autocomplete="new-password">
+                    <p><button class="ghost" id="rgo">Reset password</button></p>
+                    <div class="msg" id="rmsg"></div>
+                </div>
+            </div>
         </div>
     </div>
+    <script src="layout.js"></script>
     <script src="pm.js"></script>
     <script>
         const API = "http://localhost:8000";

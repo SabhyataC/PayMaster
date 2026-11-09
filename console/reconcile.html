@@ -1,48 +1,323 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="layout.css">
     <title>PayMaster: Reconciliation</title>
     <style>
-        :root { --bg: #f7f6f2; --card: #fff; --line: #e4e2da; --ink: #1d1d1b; --muted: #6b6a63; --ok: #0b6b4f; --ok-bg: #e6f3ee; --bad: #b3261e; --bad-bg: #fbe9e7; --warn: #c77700; --warn-bg: #fdf0d9; --blue: #1f4e8c; --blue-bg: #e8eff9; }
-        * { box-sizing: border-box; }
-        body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
-        header { background: #fff; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-        header a { color: var(--ok); text-decoration: none; font-weight: 600; }
-        main { max-width: 1040px; margin: 0 auto; padding: 16px; }
-        h1 { font-size: 20px; margin: 4px 0 2px; } .sub { color: var(--muted); margin: 0 0 12px; }
-        .grid { display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); margin-bottom: 14px; } @media (max-width: 800px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-        .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
-        .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); } .card .n { font-size: 26px; font-weight: 700; margin: 2px 0; } .card .h { font-size: 12px; color: var(--muted); }
-        .chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px; background: #eeede8; color: #4a4a45; }
-        .chip.good { background: var(--ok-bg); color: var(--ok); } .chip.bad { background: var(--bad-bg); color: var(--bad); } .chip.warn { background: var(--warn-bg); color: #8a5200; } .chip.blue { background: var(--blue-bg); color: var(--blue); }
-        .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-        .tools button, .tools input { padding: 7px 12px; border: 1px solid #cfcdc4; border-radius: 8px; font: inherit; font-size: 13px; background: #fff; }
-        .tools button.on { background: var(--ok); color: #fff; border-color: var(--ok); } .tools button.pri { background: var(--ok); color: #fff; border-color: var(--ok); font-weight: 600; }
-        table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 13px; }
-        th { text-align: left; background: #faf9f5; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); } td { padding: 8px 10px; border-bottom: 1px solid #eeede8; vertical-align: top; } tr:last-child td { border-bottom: 0; }
-        .note { max-width: 320px; word-break: break-word; font-style: italic; color: #4a4a45; }
-        .banner { border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; display: flex; gap: 12px; align-items: center; }
-        .banner .ic { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: #fff; flex: none; }
-        .banner.in_sync { background: var(--ok-bg); } .banner.in_sync .ic { background: var(--ok); } .banner.attention { background: var(--bad-bg); } .banner.attention .ic { background: var(--bad); } .banner.empty { background: #eeede8; } .banner.empty .ic { background: #8a8a82; }
-        .banner b { font-size: 17px; display: block; } .banner ul { margin: 4px 0 0 18px; padding: 0; }
-        .empty { color: var(--muted); padding: 18px; text-align: center; }
-        .two { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; } @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
-        .bar { height: 10px; background: #f1f0ea; border-radius: 99px; overflow: hidden; display: flex; margin: 6px 0; } .bar i { display: block; height: 100%; }
-        a.lnk { color: var(--blue); text-decoration: none; }
-        .vz-card .h { font-size: 12px; color: var(--muted); }
+        :root {
+            --bg: #f7f6f2;
+            --card: #fff;
+            --line: #e4e2da;
+            --ink: #1d1d1b;
+            --muted: #6b6a63;
+            --ok: #0b6b4f;
+            --ok-bg: #e6f3ee;
+            --bad: #b3261e;
+            --bad-bg: #fbe9e7;
+            --warn: #c77700;
+            --warn-bg: #fdf0d9;
+            --blue: #1f4e8c;
+            --blue-bg: #e8eff9;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #f4f5f2;
+            color: #1c1b18;
+            font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        header {
+            background: #fff;
+            border-bottom: 1px solid var(--line);
+            padding: 12px 16px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        header a {
+            color: var(--ok);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        main {
+            max-width: 1500px;
+            margin: 0;
+            padding: 22px 28px;
+            min-width: 0;
+        }
+
+        h1 {
+            font-size: 20px;
+            margin: 4px 0 2px;
+        }
+
+        .sub {
+            color: var(--muted);
+            margin: 0 0 12px;
+        }
+
+        .grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(4, 1fr);
+            margin-bottom: 14px;
+        }
+
+        @media (max-width: 800px) {
+            .grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px 14px;
+            min-width: 0;
+        }
+
+        .card .t {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--muted);
+        }
+
+        .card .n {
+            font-size: 26px;
+            font-weight: 700;
+            margin: 2px 0;
+        }
+
+        .card .h {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .chip {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 9px;
+            border-radius: 99px;
+            background: #eeede8;
+            color: #4a4a45;
+        }
+
+        .chip.good {
+            background: var(--ok-bg);
+            color: var(--ok);
+        }
+
+        .chip.bad {
+            background: var(--bad-bg);
+            color: var(--bad);
+        }
+
+        .chip.warn {
+            background: var(--warn-bg);
+            color: #8a5200;
+        }
+
+        .chip.blue {
+            background: var(--blue-bg);
+            color: var(--blue);
+        }
+
+        .tools {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .tools button,
+        .tools input {
+            padding: 7px 12px;
+            border: 1px solid #cfcdc4;
+            border-radius: 8px;
+            font: inherit;
+            font-size: 13px;
+            background: #fff;
+        }
+
+        .tools button.on {
+            background: var(--ok);
+            color: #fff;
+            border-color: var(--ok);
+        }
+
+        .tools button.pri {
+            background: var(--ok);
+            color: #fff;
+            border-color: var(--ok);
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        th {
+            text-align: left;
+            background: #faf9f5;
+            color: var(--muted);
+            font-weight: 600;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eeede8;
+            vertical-align: top;
+        }
+
+        tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .note {
+            max-width: 320px;
+            word-break: break-word;
+            font-style: italic;
+            color: #4a4a45;
+        }
+
+        .banner {
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .banner .ic {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-size: 22px;
+            color: #fff;
+            flex: none;
+        }
+
+        .banner.in_sync {
+            background: var(--ok-bg);
+        }
+
+        .banner.in_sync .ic {
+            background: var(--ok);
+        }
+
+        .banner.attention {
+            background: var(--bad-bg);
+        }
+
+        .banner.attention .ic {
+            background: var(--bad);
+        }
+
+        .banner.empty {
+            background: #eeede8;
+        }
+
+        .banner.empty .ic {
+            background: #8a8a82;
+        }
+
+        .banner b {
+            font-size: 17px;
+            display: block;
+        }
+
+        .banner ul {
+            margin: 4px 0 0 18px;
+            padding: 0;
+        }
+
+        .empty {
+            color: var(--muted);
+            padding: 18px;
+            text-align: center;
+        }
+
+        .two {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        @media (max-width: 800px) {
+            .two {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .bar {
+            height: 10px;
+            background: #f1f0ea;
+            border-radius: 99px;
+            overflow: hidden;
+            display: flex;
+            margin: 6px 0;
+        }
+
+        .bar i {
+            display: block;
+            height: 100%;
+        }
+
+        a.lnk {
+            color: var(--blue);
+            text-decoration: none;
+        }
+
+        .vz-card .h {
+            font-size: 12px;
+            color: var(--muted);
+        }
     </style>
 </head>
+
 <body>
-    <header><a href="index.html">&larr; Console</a><strong>Reconciliation</strong></header>
-    <main>
-        <h1>Reconciliation</h1>
-        <p class="sub">Do our books agree with PayPal? This page checks payments, the ledger and PayPal's confirmations.</p>
-        <div id="banner"></div>
-        <div class="tools"><button class="pri" id="run" type="button">Run reconcile now</button><span id="last" class="sub" style="margin:0"></span></div>
-        <div class="grid" id="cards" style="display:none"></div><div id="viz"></div>
+    <!-- <header><a href="index.html">&larr; Console</a><strong>Reconciliation</strong></header> -->
+    <div class="app">
+        <div id="sidebar"></div>
+        <main>
+            <h1>Reconciliation</h1>
+            <p class="sub">Do our books agree with PayPal? This page checks payments, the ledger and PayPal's
+                confirmations.
+            </p>
+            <div id="banner"></div>
+            <div class="tools"><button class="pri" id="run" type="button">Run reconcile now</button><span id="last"
+                    class="sub" style="margin:0"></span></div>
+            <div class="grid" id="cards" style="display:none"></div>
+            <div id="viz"></div>
         </main>
+    </div>
+    <script src="layout.js"></script>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
     <script src="viz.js"></script>
@@ -139,4 +414,5 @@
         load();
     </script>
 </body>
+
 </html>
