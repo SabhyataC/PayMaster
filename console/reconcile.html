@@ -31,6 +31,7 @@
         .two { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; } @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
         .bar { height: 10px; background: #f1f0ea; border-radius: 99px; overflow: hidden; display: flex; margin: 6px 0; } .bar i { display: block; height: 100%; }
         a.lnk { color: var(--blue); text-decoration: none; }
+        .vz-card .h { font-size: 12px; color: var(--muted); }
     </style>
 </head>
 <body>
@@ -40,10 +41,11 @@
         <p class="sub">Do our books agree with PayPal? This page checks payments, the ledger and PayPal's confirmations.</p>
         <div id="banner"></div>
         <div class="tools"><button class="pri" id="run" type="button">Run reconcile now</button><span id="last" class="sub" style="margin:0"></span></div>
-        <div class="grid" id="cards"></div>
-        <div class="two"><div><h1 style="font-size:16px">Open exceptions</h1><div id="ex"></div></div><div><h1 style="font-size:16px">Recent runs</h1><div id="runs"></div></div></div></main>
+        <div class="grid" id="cards" style="display:none"></div><div id="viz"></div>
+        </main>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
+    <script src="viz.js"></script>
     <script>
         const API = "http://localhost:8000";
         const $ = id => document.getElementById(id);
@@ -55,30 +57,78 @@
         const HEAD = { in_sync: "Books and PayPal agree", attention: "Needs attention", empty: "No payments yet" };
         const EXN = { payment_failed: "Payment failed", unknown_outcome: "Outcome unknown", pending_too_long: "Pending too long", unclaimed_too_long: "Unclaimed too long", created_too_long: "Never sent", success_mismatch: "PayPal says different status", amount_mismatch: "Amount differs", unknown_payout: "Payout we have no record of" };
         function card(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", n)); c.appendChild(el("div", "h", h)); return c; }
+        const V = window.PMViz; V.css();
+        const PAYCOL = { success: V.C.good, pending: V.C.amber, submitted: V.C.blue, created: "#8a8a82", unclaimed: V.C.amber, failed: V.C.bad, unknown: V.C.bad, returned: V.C.violet };
+        const PAYLBL = { created: "Created", submitted: "Sent to PayPal", pending: "Pending at PayPal", unclaimed: "Unclaimed by vendor", success: "Paid and confirmed", failed: "Failed", unknown: "Outcome unknown", returned: "Returned" };
+        let timer = null;
+        function heroCard(d) {
+            const c = V.card("vz-12", "", ""); c.style.display = "grid"; c.style.gridTemplateColumns = "minmax(150px,190px) 1fr"; c.style.gap = "16px"; c.style.alignItems = "center";
+            const col = d.state === "attention" ? V.C.bad : d.state === "empty" ? "#8a8a82" : V.C.good;
+            c.style.borderLeft = `5px solid ${col}`;
+            c.appendChild(V.gauge(d.health, d.health >= 90 ? V.C.good : d.health >= 60 ? V.C.amber : V.C.bad, "Reconciliation health", "health"));
+            const w = V.el("div"); const top = V.el("div"); top.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap";
+            top.appendChild(V.el("b", "", HEAD[d.state])); top.style.fontSize = "20px";
+            const live = V.el("span", "vz-live"); live.appendChild(V.el("i")); live.appendChild(document.createTextNode("Live, refreshes every 15 s")); top.appendChild(live); w.appendChild(top);
+            if (d.problems.length) { const u = V.el("ul"); u.style.margin = "6px 0 0 18px"; d.problems.forEach(p => u.appendChild(V.el("li", "", p))); w.appendChild(u); }
+            else w.appendChild(V.el("div", "sub", d.state === "empty" ? "Reconcile has nothing to compare yet." : "Every successful payment has a PayPal webhook and balanced ledger entries, and nothing disagrees."));
+            const chk = V.el("div"); chk.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:10px";
+            [["Ledger balanced", d.ledger_balanced], ["Every paid invoice booked", !d.problems.some(p => /no ledger/.test(p))], ["PayPal agrees", !d.problems.some(p => /disagree/.test(p))], ["Nothing stuck", d.stuck === 0], ["All exceptions resolved", d.exceptions.length === 0]].forEach(([l, ok]) => chk.appendChild(V.el("span", "chip " + (ok ? "good" : "bad"), (ok ? "\u2713 " : "! ") + l)));
+            w.appendChild(chk); c.appendChild(w); return c;
+        }
+        function render(d) {
+            const box = $("viz"); box.textContent = ""; const a = d.analytics, P = d.payments, n = k => (P[k] ? P[k].count : 0), day = a.daily;
+            const g = V.el("div", "vz-grid"); g.appendChild(heroCard(d));
+            g.appendChild(V.kpi("Paid and confirmed", n("success"), P.success ? money(P.success.amount) + " in total" : "no money moved yet", V.C.good, day.map(r => r.settled)));
+            g.appendChild(V.kpi("In flight", n("submitted") + n("pending") + n("created"), "waiting for PayPal", V.C.blue, null));
+            g.appendChild(V.kpi("Stuck or unknown", d.stuck, d.stuck ? "the recovery job retries these" : "nothing stuck", d.stuck ? V.C.bad : V.C.good, null));
+            g.appendChild(V.kpi("Open exceptions", d.exceptions.reduce((x, e) => x + e.open, 0), `${a.exceptions.resolved} resolved so far`, V.C.amber, day.map(r => r.opened)));
+            const L = [];
+            if (a.latency.median != null) L.push({ text: `Payouts settle in ${V.dur(a.latency.median)} typically (slowest 10%: ${V.dur(a.latency.p90)}), measured from our request to PayPal's settlement.` });
+            if (a.flow.payments) L.push({ text: `${a.flow.payments} settled payment(s): ${money(a.flow.received)} reached vendors; PayPal fees were ${money(a.flow.fees)} (${(100 * a.flow.fees / Math.max(1, a.flow.sent)).toFixed(2)}% of money sent).` });
+            if (a.exceptions.oldest_open_seconds != null) L.push({ kind: a.exceptions.oldest_open_seconds > 86400 ? "warn" : "", text: `The oldest open exception ${a.exceptions.oldest_open_seconds < 60 ? "was opened just now" : "is " + V.dur(a.exceptions.oldest_open_seconds) + " old"}.${a.exceptions.median_fix_seconds != null ? " Problems are usually fixed in " + V.dur(a.exceptions.median_fix_seconds) + "." : ""}` });
+            if (!d.problems.length && d.state !== "empty") L.push({ text: "Nothing disagrees. Every payment we sent can be traced to a PayPal confirmation and a balanced ledger entry." });
+            if (L.length) g.appendChild(V.insight(L));
+
+            const c1 = V.card("vz-7", "Payments settled per day", "Last 14 days. Hover a bar for the amount.");
+            if (day.some(r => r.settled || r.failed)) { const ser = [{ key: "settled", label: "Settled", color: V.C.good2 }, { key: "failed", label: "Failed", color: V.C.bad }]; c1.appendChild(V.stacked(day, ser, { label: "Payments settled per day" })); c1.appendChild(V.legend(ser)); }
+            else c1.appendChild(V.el("div", "vz-empty", "No settled payments in the last 14 days."));
+            g.appendChild(c1);
+
+            const c2 = V.card("vz-5", "Where the money went", "Sent from your account, split into what vendors got and fees");
+            if (Number(a.flow.sent) > 0) c2.appendChild(V.hbars([{ label: "Sent from you", value: Number(a.flow.sent), color: V.C.blue }, { label: "Reached vendors", value: Number(a.flow.received), color: V.C.good2 }, { label: "PayPal fees", value: Number(a.flow.fees), color: V.C.amber }], v => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })));
+            else c2.appendChild(V.el("div", "vz-empty", "No settled money yet."));
+            g.appendChild(c2);
+
+            const c3 = V.card("vz-7", "Problems opened vs fixed", "Is the team keeping up with exceptions?");
+            if (day.some(r => r.opened || r.resolved)) { const ser = [{ key: "opened", label: "Opened", color: V.C.bad }, { key: "resolved", label: "Resolved", color: V.C.good }]; c3.appendChild(V.lines(day, ser, { label: "Exceptions opened and resolved" })); c3.appendChild(V.legend(ser)); }
+            else c3.appendChild(V.el("div", "vz-empty", "No exceptions in the last 14 days. That is a good sign."));
+            g.appendChild(c3);
+
+            const c4 = V.card("vz-5", "Payments by status", "Everything that has been sent to PayPal");
+            const ord = ["created", "submitted", "pending", "unclaimed", "success", "failed", "unknown", "returned"].filter(k => P[k]);
+            if (ord.length) c4.appendChild(V.hbars(ord.map(k => ({ label: PAYLBL[k], value: P[k].count, color: PAYCOL[k], tip: `${PAYLBL[k]}: ${P[k].count} payment(s), ${money(P[k].amount)}` })))); else c4.appendChild(V.el("div", "vz-empty", "No payments yet."));
+            g.appendChild(c4);
+
+            const c5 = V.card("vz-6", "Open exceptions", "Things a person needs to look at");
+            if (!d.exceptions.length) c5.appendChild(V.el("div", "vz-empty", "No open exceptions."));
+            else c5.appendChild(V.hbars(d.exceptions.map(e => ({ label: EXN[e.type] || e.type.replace(/_/g, " "), value: e.open, color: V.C.bad, tip: `oldest ${when(e.oldest)}` }))));
+            g.appendChild(c5);
+
+            const c6 = V.card("vz-6", "Recent reconcile runs", "Each run checks PayPal against our records");
+            if (!d.runs.length) c6.appendChild(V.el("div", "vz-empty", "No runs yet."));
+            d.runs.forEach(x => { const row = V.el("div"); row.style.cssText = "display:grid;grid-template-columns:14px 1fr;gap:10px;padding:6px 0;border-bottom:1px solid #f1f0ea"; const dot = V.el("i"); dot.style.cssText = `width:10px;height:10px;border-radius:50%;background:${/nothing|0 /i.test(x.result) ? V.C.good2 : V.C.amber};margin-top:5px`; row.appendChild(dot); const t = V.el("div"); t.appendChild(V.el("b", "", when(x.at))); t.appendChild(V.el("div", "h", x.result)); row.appendChild(t); c6.appendChild(row); });
+            g.appendChild(c6);
+            box.appendChild(g);
+        }
         async function load() {
             try {
                 const r = await fetch(`${API}/reconcile/status`);
                 if (!r.ok) { $("banner").textContent = `Could not load (error ${r.status})`; return; }
-                const d = await r.json();
-                const b = el("div", "banner " + d.state); b.appendChild(el("div", "ic", ICON[d.state]));
-                const w = el("div"); w.appendChild(el("b", "", HEAD[d.state]));
-                if (d.problems.length) { const u = el("ul"); d.problems.forEach(p => u.appendChild(el("li", "", p))); w.appendChild(u); }
-                else w.appendChild(el("span", "", d.state === "empty" ? "Reconcile has nothing to compare yet." : "Every successful payment has a PayPal webhook and balanced ledger entries, and nothing disagrees."));
-                b.appendChild(w); $("banner").textContent = ""; $("banner").appendChild(b);
+                const d = await r.json(); $("banner").textContent = "";
                 $("last").textContent = d.last_run ? `Last run ${when(d.last_run.at)}: ${d.last_run.result}` : "Reconcile has not been run yet";
-                const P = d.payments, cards = $("cards"); cards.textContent = "";
-                const n = k => (P[k] ? P[k].count : 0);
-                cards.appendChild(card("Paid and confirmed", n("success"), P.success ? money(P.success.amount) + " in total" : "no money moved yet"));
-                cards.appendChild(card("In flight", n("submitted") + n("pending") + n("created"), "waiting for PayPal"));
-                cards.appendChild(card("Stuck or unknown", d.stuck, d.stuck ? "recovery job retries these" : "none"));
-                cards.appendChild(card("Ledger", d.ledger_balanced ? "Balanced" : "Out of balance", d.ledger.map(l => `${l.currency}: ${l.debits} debits, ${l.credits} credits`).join("; ") || "no entries yet"));
-                const ex = $("ex"); ex.textContent = "";
-                if (!d.exceptions.length) ex.appendChild(el("div", "empty card", "No open exceptions."));
-                d.exceptions.forEach(e => { const c = el("div", "card"); c.style.marginBottom = "8px"; c.appendChild(el("b", "", `${EXN[e.type] || e.type.replace(/_/g, " ")}: ${e.open}`)); c.appendChild(el("div", "h", `oldest ${when(e.oldest)}`)); ex.appendChild(c); });
-                const ru = $("runs"); ru.textContent = "";
-                if (!d.runs.length) ru.appendChild(el("div", "empty card", "No runs yet."));
-                d.runs.forEach(x => { const c = el("div", "card"); c.style.marginBottom = "8px"; c.appendChild(el("b", "", when(x.at))); c.appendChild(el("div", "h", x.result)); ru.appendChild(c); });
+                render(d);
             } catch (e) { $("banner").textContent = "Cannot reach the API"; }
+            clearTimeout(timer); timer = setTimeout(load, 15000);
         }
         $("run").onclick = async () => {
             $("run").disabled = true;

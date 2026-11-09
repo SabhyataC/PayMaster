@@ -75,8 +75,39 @@ def test_reconcile_status():
           client.get("/reconcile/status", headers=h).json()["last_run"] is not None)
 
 
+def test_analytics():
+    section("Analytics series behind the charts (counted exactly, scoped to the company)")
+    w, o = world(), world()
+    h = bearer(w["users"]["reviewer"][0])
+    rows = [("approve", "approve", 0), ("hold", "approve", 0), ("hold", "reject", 1), ("approve", "reject", 2), ("reject", "reject", 20)]
+    for ai, hd, ago in rows:
+        inv = mk_invoice(w["cid"], w["vid"], w["po_id"], status="held")
+        run("UPDATE invoices SET received_at = now() - interval '2 hours' - (%s || ' days')::interval WHERE id = %s", (ago, inv))
+        run("INSERT INTO reviews (invoice_id, original_ai_decision, human_decision, reviewer, note, created_at) "
+            "VALUES (%s, %s, %s, 'Asha', 'n', now() - (%s || ' days')::interval)", (inv, ai, hd, ago))
+    oi = mk_invoice(o["cid"], o["vid"], o["po_id"], status="held")
+    run("INSERT INTO reviews (invoice_id, original_ai_decision, human_decision, reviewer, note) VALUES (%s, 'hold', 'approve', 'Zed', 'n')", (oi,))
+    a = client.get("/approvals", headers=h).json()["analytics"]
+    check("14 daily rows, oldest first", len(a["daily"]) == 14 and a["daily"][0]["day"] < a["daily"][-1]["day"])
+    check("the 20-day-old decision is outside the 14-day chart", sum(r["approved"] + r["rejected"] + r["overrode"] for r in a["daily"]) == 4)
+    today = a["daily"][-1]
+    check("today: one plain approval and one approval against the AI", today["approved"] == 1 and today["overrode"] == 1 and today["rejected"] == 0, today)
+    check("agreement = 3 of 5 (approve/approve, hold/reject, reject/reject)", a["agreement"] == 0.6, a["agreement"])
+    cell = {(c["ai"], c["human"]): c["count"] for c in a["matrix"]}
+    check("matrix counts are exact and exclude other companies", cell == {("approve", "approve"): 1, ("hold", "approve"): 1, ("hold", "reject"): 1, ("approve", "reject"): 1, ("reject", "reject"): 1}, cell)
+    check("people table has only this company's reviewer", [p["name"] for p in a["people"]] == ["Asha"] and a["people"][0]["decisions"] == 5)
+    check("latency buckets add up to the decisions", sum(b["count"] for b in a["latency"]["buckets"]) == 5, a["latency"])
+    check("overrides counted", a["overrides"]["total"] == 1)
+    r = client.get("/reconcile/status", headers=h).json()
+    check("health score is 0-100", 0 <= r["health"] <= 100)
+    ra = r["analytics"]
+    check("reconcile series has 14 days and the exceptions block", len(ra["daily"]) == 14 and "median_fix_seconds" in ra["exceptions"])
+    l = client.get(f"/lifecycle/{inv}", headers=h).json()
+    check("lifecycle reports active stage, completeness and timings", l["complete"] is False and l["active"] is not None and "seconds" in l["stages"][0] and l["started_at"], l.get("active"))
+
+
 def main():
-    for t in (test_lifecycle, test_approvals, test_reconcile_status):
+    for t in (test_lifecycle, test_approvals, test_reconcile_status, test_analytics):
         try:
             t()
         except Exception as e:

@@ -38,11 +38,12 @@
     <main>
         <h1>Approval history</h1>
         <p class="sub">Every time a person approved or rejected an invoice: who, when, what the AI said, and what happened next.</p>
-        <div class="grid" id="stats"></div>
+        <div id="viz"></div>
         <div class="tools" id="tools"></div>
         <div id="out"></div></main>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
+    <script src="viz.js"></script>
     <script>
         const API = "http://localhost:8000";
         const $ = id => document.getElementById(id);
@@ -50,9 +51,76 @@
         const when = t => t ? new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never";
         const money = (a, c) => `${Number(a).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c || ""}`.trim();
 
+
+        /* ---------- analytics ---------- */
+        const V = window.PMViz; V.css();
+        function renderViz(d) {
+            const s = d.stats, an = d.analytics, box = $("viz"); box.textContent = "";
+            const day = an.daily, tot = k => day.reduce((a, r) => a + r[k], 0);
+            const g = V.el("div", "vz-grid");
+            g.appendChild(V.kpi("Decisions", s.decisions, `${s.approved} approved, ${s.rejected} rejected`, V.C.blue, day.map(r => r.approved + r.rejected + r.overrode)));
+            g.appendChild(V.kpi("Overrode the AI", s.overrides, "AI said hold or reject, a person approved", V.C.violet, day.map(r => r.overrode)));
+            g.appendChild(V.kpi("Confirmed with vendor", s.confirmed_with_vendor, "approvals backed by a call or email", V.C.good, null));
+            g.appendChild(V.kpi("Approved, then a problem", s.approved_then_problem, "approved invoices whose payment later raised an exception", s.approved_then_problem ? V.C.bad : V.C.good, null));
+
+            const lines = [];
+            if (an.agreement != null) lines.push({ text: `People and the AI agreed on ${Math.round(an.agreement * 100)}% of decisions${an.agreement >= 0.85 ? ": the AI's holds are usually right." : ": the AI and your team often see it differently, worth reviewing the overrides."}` });
+            if (an.overrides.total) lines.push({ kind: an.overrides.later_problem ? "bad" : "", text: `${an.overrides.total} invoice(s) were approved against the AI's advice; ${an.overrides.later_problem ? an.overrides.later_problem + " of them later raised a payment problem." : "none of them has raised a payment problem."}` });
+            if (an.latency.median != null) lines.push({ kind: an.latency.median > 86400 ? "warn" : "", text: `Typical time from invoice arrival to a person's decision: ${V.dur(an.latency.median)} (slowest 10% take over ${V.dur(an.latency.p90)}).` });
+            if (s.confirmed_with_vendor && s.approved) lines.push({ text: `${Math.round(100 * s.confirmed_with_vendor / s.approved)}% of approvals were confirmed with the vendor first.` });
+            if (lines.length) g.appendChild(V.insight(lines));
+
+            const c1 = V.card("vz-8", "Decisions per day", "Last 14 days. Purple = a person approved something the AI had held.");
+            if (day.some(r => r.approved + r.rejected + r.overrode)) {
+                const ser = [{ key: "approved", label: "Approved", color: V.C.good }, { key: "overrode", label: "Approved against AI advice", color: V.C.violet }, { key: "rejected", label: "Rejected", color: V.C.bad }];
+                c1.appendChild(V.stacked(day, ser, { label: "Decisions per day" })); c1.appendChild(V.legend(ser));
+            } else c1.appendChild(V.el("div", "vz-empty", "No decisions in the last 14 days."));
+            g.appendChild(c1);
+
+            const c2 = V.card("vz-4", "AI vs person", "How often they agreed");
+            if (an.agreement != null) { c2.appendChild(V.gauge(Math.round(an.agreement * 100), an.agreement >= 0.85 ? V.C.good : V.C.amber, "Agreement", "agreement")); c2.appendChild(V.el("div", "vz-sub", "Agreed = AI approve and person approve, or AI hold/reject and person reject.")); }
+            else c2.appendChild(V.el("div", "vz-empty", "No AI-reviewed decisions yet."));
+            g.appendChild(c2);
+
+            const c3 = V.card("vz-6", "Where the AI and the person differ", "Each cell counts decisions");
+            c3.appendChild(matrix(an.matrix)); g.appendChild(c3);
+
+            const c4 = V.card("vz-6", "How long a decision takes", "From invoice arrival to a person's decision");
+            const bk = an.latency.buckets;
+            if (bk.some(b => b.count)) c4.appendChild(V.hbars(bk.map((b, i) => ({ label: b.label, value: b.count, color: i < 2 ? V.C.good2 : i < 4 ? V.C.amber : V.C.bad })))); else c4.appendChild(V.el("div", "vz-empty", "No data yet."));
+            g.appendChild(c4);
+
+            const c5 = V.card("vz-12", "People", "Who decides, how often they approve, and how fast");
+            if (an.people.length) {
+                const t = V.el("table"), h = V.el("tr"); ["Person", "Decisions", "Approve rate", "Overrode AI", "Median time"].forEach(x => h.appendChild(V.el("th", "", x))); t.appendChild(h);
+                an.people.forEach(p => { const tr = V.el("tr"); tr.appendChild(V.el("td", "", p.name)); tr.appendChild(V.el("td", "", String(p.decisions)));
+                    const rt = V.el("td"); const bar = V.el("div", "bar"); const f = V.el("i"); f.style.width = Math.round(p.approve_rate * 100) + "%"; f.style.background = V.C.good2; bar.appendChild(f); rt.appendChild(V.el("span", "", Math.round(p.approve_rate * 100) + "%")); rt.appendChild(bar); tr.appendChild(rt);
+                    tr.appendChild(V.el("td", "", String(p.overrides))); tr.appendChild(V.el("td", "", V.dur(p.median_seconds))); t.appendChild(tr); });
+                c5.appendChild(t);
+            } else c5.appendChild(V.el("div", "vz-empty", "No decisions yet."));
+            g.appendChild(c5);
+            box.appendChild(g);
+        }
+        function matrix(cells) {
+            const rows = [["approve", "AI said approve"], ["hold", "AI said hold"], ["reject", "AI said reject"]], cols = [["approve", "Person approved"], ["reject", "Person rejected"]];
+            const get = (a, h) => (cells.find(c => c.ai === a && c.human === h) || { count: 0 }).count, max = Math.max(1, ...cells.map(c => c.count));
+            const W = 420, H = 170, lw = 110, ch = 40, svg = V.svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "vz-svg", role: "img", "aria-label": "AI versus person decisions" });
+            cols.forEach(([k, l], j) => svg.appendChild(V.svg("text", { x: lw + j * 150 + 70, y: 16, "text-anchor": "middle", "font-size": 11, fill: V.C.mute }, l)));
+            rows.forEach(([a, l], i) => {
+                svg.appendChild(V.svg("text", { x: lw - 8, y: 52 + i * (ch + 8), "text-anchor": "end", "font-size": 11, fill: V.C.mute }, l));
+                cols.forEach(([h], j) => {
+                    const n = get(a, h), bad = (a === "approve") !== (h === "approve"), col = bad ? V.C.violet : V.C.good2;
+                    const r = V.svg("rect", { x: lw + j * 150, y: 28 + i * (ch + 8), width: 140, height: ch, rx: 8, fill: n ? col : "#f1f0ea", opacity: n ? 0.18 + 0.82 * (n / max) : 1 });
+                    V.hover(r, `${l}, ${cols[j][1].toLowerCase()}: ${n}${bad ? " (they differ)" : " (they agree)"}`); svg.appendChild(r);
+                    svg.appendChild(V.svg("text", { x: lw + j * 150 + 70, y: 54 + i * (ch + 8), "text-anchor": "middle", "font-size": 16, "font-weight": 700, fill: n && n / max > 0.55 ? "#fff" : V.C.ink, "pointer-events": "none" }, String(n)));
+                });
+            });
+            return svg;
+        }
+
         let filter = "all", q = "";
         const FILTERS = [["all", "All decisions"], ["approve", "Approved"], ["reject", "Rejected"], ["override", "Overrode the AI"]];
-        function stat(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", String(n))); c.appendChild(el("div", "h", h)); return c; }
+        function stat_unused(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", String(n))); c.appendChild(el("div", "h", h)); return c; }
         function drawTools() {
             const box = $("tools"); box.textContent = "";
             FILTERS.forEach(([k, l]) => { const b = el("button", k === filter ? "on" : "", l); b.type = "button"; b.onclick = () => { filter = k; load(); }; box.appendChild(b); });
@@ -65,11 +133,7 @@
             try {
                 const r = await fetch(`${API}/approvals?decision=${filter}&q=${encodeURIComponent(q)}`);
                 if (!r.ok) { out.textContent = `Could not load (error ${r.status})`; return; }
-                const d = await r.json(), s = d.stats; $("stats").textContent = "";
-                $("stats").appendChild(stat("Decisions", s.decisions, `${s.approved} approved, ${s.rejected} rejected`));
-                $("stats").appendChild(stat("Overrode the AI", s.overrides, "AI said hold or reject, a person approved"));
-                $("stats").appendChild(stat("Confirmed with vendor", s.confirmed_with_vendor, "approvals backed by a call or email"));
-                $("stats").appendChild(stat("Approved, then a problem", s.approved_then_problem, "approved invoices whose payment later raised an exception"));
+                const d = await r.json(); if (redraw) renderViz(d);
                 out.textContent = "";
                 if (!d.items.length) { out.appendChild(el("div", "empty card", "No decisions match.")); return; }
                 const t = el("table"), h = el("tr"); ["When", "Invoice", "Vendor", "Amount", "AI said", "Person decided", "Note", "Result"].forEach(x => h.appendChild(el("th", "", x))); t.appendChild(h);

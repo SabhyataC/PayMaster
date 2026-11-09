@@ -139,6 +139,7 @@
     </main>
     <script src="pm.js"></script>
     <script src="ui.js"></script>
+    <script src="lifecycle.js"></script>
     <script src="report.js"></script>
     <script>
         const API = "http://localhost:8000";
@@ -281,24 +282,7 @@
         }
 
         function renderReport(r) { PMReport.render($("report"), r); }
-        async function loadLifecycle(ref) {
-            const box = $("life"); box.textContent = "";
-            try {
-                const r = await fetch(`${API}/lifecycle/${encodeURIComponent(ref)}`);
-                if (!r.ok) return;
-                const d = await r.json();
-                const wrap = el("div", "life"); wrap.appendChild(el("h2", "", `Payment lifecycle: invoice ${d.invoice_number}`));
-                const lf = el("div", "lf");
-                d.stages.forEach((st, i) => {
-                    const c = el("div", "st " + st.state);
-                    c.appendChild(el("div", "dt", st.state === "done" ? "\u2713" : st.state === "problem" ? "!" : st.state === "skipped" ? "\u2212" : String(i + 1)));
-                    const b = el("div"); b.appendChild(el("div", "nm", st.label));
-                    b.appendChild(el("div", "tm", st.at ? new Date(st.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : st.state === "skipped" ? "not needed" : "waiting"));
-                    b.appendChild(el("div", "dtl", st.detail)); c.appendChild(b); lf.appendChild(c);
-                });
-                wrap.appendChild(lf); box.appendChild(wrap);
-            } catch (e) { }
-        }
+        function loadLifecycle(ref) { PMLife.mount($("life"), ref, API); }
         async function loadReport(ref) {
             const out = $("report"); out.textContent = "";
             try {

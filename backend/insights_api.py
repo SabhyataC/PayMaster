@@ -1,5 +1,6 @@
 """Read-only views for the console: payment lifecycle, approval history, reconcile status.
 Everything is scoped to the logged-in person's company."""
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -71,7 +72,20 @@ def lifecycle(ref: str, user: dict = Depends(current_member)):
     else:
         for k, l in (("payout", "Payout sent to PayPal"), ("webhook", "PayPal confirmed"), ("ledger", "Booked in the ledger"), ("reconciled", "Reconciled")):
             add(k, l, "pending", None, "No payout yet")
-    return {"invoice_number": inv[0], "status": inv[2], "stages": S}
+    # how long each stage took after the one before it, and which stage the invoice is waiting on now
+    prev = None
+    for st in S:
+        t = datetime.fromisoformat(st["at"]) if st["at"] else None
+        st["seconds"] = max(0, (t - prev).total_seconds()) if t and prev else None
+        if t:
+            prev = t
+    active = next((i for i, st in enumerate(S) if st["state"] == "pending"), None)
+    first, last = S[0]["at"], max((st["at"] for st in S if st["at"]), default=None)
+    complete = all(st["state"] in ("done", "skipped") for st in S)
+    total = (datetime.fromisoformat(last) - datetime.fromisoformat(first)).total_seconds() if first and last else None
+    return {"invoice_number": inv[0], "status": inv[2], "stages": S, "active": active, "complete": complete,
+            "has_problem": any(st["state"] == "problem" for st in S), "total_seconds": total,
+            "started_at": first, "now": datetime.now(timezone.utc).isoformat()}
 
 
 # ---------------------------------------------------------------- approvals
@@ -105,8 +119,57 @@ def approvals(decision: str = Query("all", pattern="^(all|approve|reject|overrid
         bad_after = conn.execute(
             "SELECT count(*) FROM reviews r JOIN invoices i ON i.id = r.invoice_id JOIN payments p ON p.invoice_id = i.id "
             "JOIN exceptions e ON e.payment_id = p.id WHERE i.company_id = %s AND r.human_decision = 'approve'", (cid,)).fetchone()[0]
-    return {"items": items, "stats": {"decisions": total[0], "approved": total[1], "rejected": total[2],
+    return {"items": items, "analytics": _approval_analytics(cid), "stats": {"decisions": total[0], "approved": total[1], "rejected": total[2],
                                       "overrides": total[3], "confirmed_with_vendor": total[4], "approved_then_problem": bad_after}}
+
+
+def _approval_analytics(cid, days=14):
+    with get_conn() as conn:
+        daily = conn.execute(
+            """SELECT d::date, count(r.id) FILTER (WHERE r.human_decision = 'approve' AND NOT (r.original_ai_decision IN ('hold','reject'))),
+                      count(r.id) FILTER (WHERE r.human_decision = 'reject'),
+                      count(r.id) FILTER (WHERE r.human_decision = 'approve' AND r.original_ai_decision IN ('hold','reject'))
+               FROM generate_series(current_date - (%s - 1), current_date, interval '1 day') d
+               LEFT JOIN (SELECT r.* FROM reviews r JOIN invoices i ON i.id = r.invoice_id WHERE i.company_id = %s) r
+                      ON r.created_at::date = d::date
+               GROUP BY d ORDER BY d""", (days, cid)).fetchall()
+        people = conn.execute(
+            """SELECT r.reviewer, count(*), count(*) FILTER (WHERE r.human_decision = 'approve'),
+                      count(*) FILTER (WHERE r.original_ai_decision IN ('hold','reject') AND r.human_decision = 'approve'),
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (r.created_at - i.received_at)))
+               FROM reviews r JOIN invoices i ON i.id = r.invoice_id WHERE i.company_id = %s
+               GROUP BY r.reviewer ORDER BY 2 DESC LIMIT 8""", (cid,)).fetchall()
+        mx = conn.execute(
+            """SELECT COALESCE(r.original_ai_decision, 'none'), r.human_decision, count(*)
+               FROM reviews r JOIN invoices i ON i.id = r.invoice_id WHERE i.company_id = %s GROUP BY 1, 2""", (cid,)).fetchall()
+        lat = conn.execute(
+            """SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY x), percentile_cont(0.9) WITHIN GROUP (ORDER BY x),
+                      count(*) FILTER (WHERE x < 300), count(*) FILTER (WHERE x >= 300 AND x < 1800),
+                      count(*) FILTER (WHERE x >= 1800 AND x < 7200), count(*) FILTER (WHERE x >= 7200 AND x < 86400),
+                      count(*) FILTER (WHERE x >= 86400)
+               FROM (SELECT extract(epoch FROM (r.created_at - i.received_at)) x FROM reviews r
+                     JOIN invoices i ON i.id = r.invoice_id WHERE i.company_id = %s) t""", (cid,)).fetchone()
+        money = conn.execute(
+            """SELECT r.human_decision, COALESCE(sum(i.amount), 0) FROM reviews r JOIN invoices i ON i.id = r.invoice_id
+               WHERE i.company_id = %s GROUP BY 1""", (cid,)).fetchall()
+        later = conn.execute(
+            """SELECT count(DISTINCT r.id) FILTER (WHERE r.original_ai_decision IN ('hold','reject') AND r.human_decision = 'approve'),
+                      count(DISTINCT r.id) FILTER (WHERE r.original_ai_decision IN ('hold','reject') AND r.human_decision = 'approve'
+                                                   AND EXISTS (SELECT 1 FROM payments p JOIN exceptions e ON e.payment_id = p.id WHERE p.invoice_id = i.id))
+               FROM reviews r JOIN invoices i ON i.id = r.invoice_id WHERE i.company_id = %s""", (cid,)).fetchone()
+    ai_total = sum(n for a, h, n in mx if a != "none")
+    agree = sum(n for a, h, n in mx if (a == "approve" and h == "approve") or (a in ("hold", "reject") and h == "reject"))
+    return {
+        "daily": [{"day": d.isoformat(), "approved": a, "rejected": r, "overrode": o} for d, a, r, o in daily],
+        "people": [{"name": n, "decisions": c, "approve_rate": round(a / c, 3) if c else 0, "overrides": o,
+                    "median_seconds": float(m) if m is not None else None} for n, c, a, o, m in people],
+        "matrix": [{"ai": a, "human": h, "count": n} for a, h, n in mx],
+        "agreement": round(agree / ai_total, 3) if ai_total else None,
+        "latency": {"median": float(lat[0]) if lat[0] is not None else None, "p90": float(lat[1]) if lat[1] is not None else None,
+                    "buckets": [{"label": l, "count": c} for l, c in zip(("< 5 min", "5-30 min", "30 min-2 h", "2-24 h", "> 1 day"), lat[2:])]},
+        "money": {d: str(a) for d, a in money},
+        "overrides": {"total": later[0] or 0, "later_problem": later[1] or 0},
+    }
 
 
 # ---------------------------------------------------------------- reconcile status
@@ -151,6 +214,38 @@ def reconcile_status(user: dict = Depends(current_member)):
     if no_hook:
         problems.append(f"{no_hook} successful payment(s) have no webhook on record")
     state = "attention" if problems else ("in_sync" if pays else "empty")
-    return {"state": state, "problems": problems, "payments": {s: {"count": n, "amount": str(a)} for s, (n, a) in pays.items()},
+    score = 100 - (35 if not balanced else 0) - min(30, 10 * (no_ledger + hard_open)) - min(20, 5 * other_open) - min(10, 5 * no_hook) - min(10, 3 * stuck)
+    return {"health": max(0, score), "analytics": _reconcile_analytics(cid), "state": state, "problems": problems, "payments": {s: {"count": n, "amount": str(a)} for s, (n, a) in pays.items()},
             "exceptions": ex, "stuck": stuck, "ledger": [{"currency": c, "debits": str(d), "credits": str(cr)} for c, d, cr in led],
             "ledger_balanced": balanced, "last_run": {"at": _iso(last[0]), "result": last[1]} if last else None, "runs": runs}
+
+
+def _reconcile_analytics(cid, days=14):
+    with get_conn() as conn:
+        daily = conn.execute(
+            """SELECT d::date,
+                      (SELECT count(*) FROM settlements s JOIN payments p ON p.id = s.payment_id WHERE p.company_id = %(c)s AND s.settled_at::date = d::date),
+                      (SELECT COALESCE(sum(s.amount_received), 0) FROM settlements s JOIN payments p ON p.id = s.payment_id WHERE p.company_id = %(c)s AND s.settled_at::date = d::date),
+                      (SELECT count(*) FROM payments p WHERE p.company_id = %(c)s AND p.status = 'failed' AND p.updated_at::date = d::date),
+                      (SELECT count(*) FROM exceptions e WHERE e.company_id = %(c)s AND e.created_at::date = d::date),
+                      (SELECT count(*) FROM exceptions e WHERE e.company_id = %(c)s AND e.resolved_at::date = d::date)
+               FROM generate_series(current_date - (%(n)s - 1), current_date, interval '1 day') d ORDER BY d""", {"c": cid, "n": days}).fetchall()
+        lat = conn.execute(
+            """SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY x), percentile_cont(0.9) WITHIN GROUP (ORDER BY x), count(*)
+               FROM (SELECT extract(epoch FROM (s.settled_at - p.created_at)) x FROM settlements s
+                     JOIN payments p ON p.id = s.payment_id WHERE p.company_id = %s) t""", (cid,)).fetchone()
+        flow = conn.execute(
+            """SELECT COALESCE(sum(s.amount_sent), 0), COALESCE(sum(s.amount_received), 0), COALESCE(sum(s.fee_amount), 0), count(*)
+               FROM settlements s JOIN payments p ON p.id = s.payment_id WHERE p.company_id = %s""", (cid,)).fetchone()
+        fix = conn.execute(
+            """SELECT count(*) FILTER (WHERE status = 'resolved'), count(*) FILTER (WHERE status = 'open'),
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (resolved_at - created_at))) FILTER (WHERE status = 'resolved'),
+                      extract(epoch FROM (now() - min(created_at) FILTER (WHERE status = 'open')))
+               FROM exceptions WHERE company_id = %s""", (cid,)).fetchone()
+    return {
+        "daily": [{"day": d.isoformat(), "settled": n, "amount": str(a), "failed": f, "opened": o, "resolved": r} for d, n, a, f, o, r in daily],
+        "latency": {"median": float(lat[0]) if lat[0] is not None else None, "p90": float(lat[1]) if lat[1] is not None else None, "count": lat[2]},
+        "flow": {"sent": str(flow[0]), "received": str(flow[1]), "fees": str(flow[2]), "payments": flow[3]},
+        "exceptions": {"resolved": fix[0], "open": fix[1], "median_fix_seconds": float(fix[2]) if fix[2] is not None else None,
+                       "oldest_open_seconds": float(fix[3]) if fix[3] is not None else None},
+    }
