@@ -5,12 +5,31 @@
     const NS = "http://www.w3.org/2000/svg";
     const svg = (tag, a) => { const e = document.createElementNS(NS, tag); for (const k in (a || {})) e.setAttribute(k, a[k]); return e; };
     const STAMP = { held: ["On hold", "warn"], approved: ["Approved", "good"], paid: ["Paid", "good"], rejected: ["Rejected", "bad"], cancelled: ["Cancelled", "bad"], received: ["Received", "mute"], needs_review: ["Needs a fix", "warn"] };
-    const ICON = { get_po: "\ud83d\udccb", get_deliveries: "\ud83d\udce6", get_vendor_bank_history: "\ud83c\udfe6", find_similar_invoices: "\ud83e\uddfe", search_vendors: "\ud83d\udd0e", find_similar_precedents: "\ud83d\uddc2\ufe0f" };
     const TOOL = { get_po: "Looked up the purchase order", get_deliveries: "Checked deliveries", get_vendor_bank_history: "Checked payout-email history", find_similar_invoices: "Searched for similar invoices", search_vendors: "Searched for look-alike vendor names", find_similar_precedents: "Searched case memory" };
-    const BASIS_ICON = { code_check: "\u2699\ufe0f", fraud_signal: "\ud83d\udea9", ai: "\ud83e\udd16", gate: "\ud83d\udee1\ufe0f", human: "\ud83d\udc64", tool: "\ud83d\udd0d" };
+    const P = {
+        get_po: ["M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z", "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2", "M12 11h4", "M12 16h4", "M8 11h.01", "M8 16h.01"],
+        get_deliveries: ["m7.5 4.27 9 5.15", "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
+        get_vendor_bank_history: ["M3 22h18", "M6 18v-7", "M10 18v-7", "M14 18v-7", "M18 18v-7", "M12 2 20 7H4Z"],
+        find_similar_invoices: ["M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z", "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8", "M12 17.5v-11"],
+        search_vendors: ["m21 21-4.34-4.34", "M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z"],
+        find_similar_precedents: ["M11 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3", "M20 17a3 3 0 1 1-6 0 3 3 0 0 1 6 0z", "m21 21-1.9-1.9"],
+        code_check: ["m3 17 2 2 4-4", "m3 7 2 2 4-4", "M13 6h8", "M13 12h8", "M13 18h8"],
+        fraud_signal: ["M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z", "M4 22v-7"],
+        ai: ["M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5", "M9 18h6", "M10 22h4"],
+        gate: ["M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z", "m9 12 2 2 4-4"],
+        human: ["M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"],
+        tool: ["m21 21-4.34-4.34", "M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z"],
+        check: ["M20 6 9 17l-5-5"],
+        x: ["M18 6 6 18", "m6 6 12 12"]
+    };
+    const svgIcon = key => {
+        const s = svg("svg", { viewBox: "0 0 24 24", class: "i", "aria-hidden": "true" });
+        (P[key] || P.tool).forEach(d => s.appendChild(svg("path", { d })));
+        return s;
+    };
 
     const CSS = `
-.rp{max-width:900px;margin:22px auto 40px}
+.rp{max-width:none;margin:22px auto 40px}
 .rp-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.rp-bar .sp{flex:1}
 .rp-bar button{padding:7px 12px;border:1px solid #cfcdc4;background:#fff;color:#1d1d1b;border-radius:8px;font:inherit;font-size:13px;cursor:pointer}
 .rp-bar button:hover{border-color:#0b6b4f;color:#0b6b4f}.rp-bar .pri{background:#0b6b4f;border-color:#0b6b4f;color:#fff}.rp-bar .pri:hover{color:#fff;background:#095a42}
@@ -51,7 +70,11 @@
  body{background:#fff!important}header,#out,#f,.rp-bar,.noprint,.pmui-toasts{display:none!important}
  main{max-width:none!important;padding:0!important}.rp{margin:0;max-width:none}.rp-paper{border:0;box-shadow:none;padding:0}
  .rp-f,.rp-case,.rp-ev,.rp-sc,.rp-st{break-inside:avoid}.rp h2{break-after:avoid}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-}`;
+}
+ .rp svg.i{width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.2em}
+.rp-st .dot svg.i{width:20px;height:20px}
+.rp-st.good .dot{color:#0b6b4f}.rp-st.bad .dot{color:#b3261e}.rp-st.warn .dot{color:#c77700}
+.rp-f .ic svg.i{width:15px;height:15px;stroke-width:2.5}`;
 
     function idChip(r) {
         const b = el("button", "rid", `${r.type.replace(/_/g, " ")} ${String(r.id).length > 10 ? String(r.id).slice(0, 8) : r.id}`);
@@ -80,23 +103,42 @@
         return L.join("\n");
     }
     function stage(cls, icon, name, desc) {
-        const s = el("div", "rp-st " + cls); s.appendChild(el("div", "dot", icon));
-        const w = el("div"); w.appendChild(el("div", "n", name)); w.appendChild(el("div", "d", desc)); s.appendChild(w); return s;
+        const s = el("div", "rp-st " + cls);
+        const dot = el("div", "dot");
+        dot.appendChild(svgIcon(icon));
+        s.appendChild(dot);
+        const w = el("div");
+        w.appendChild(el("div", "n", name));
+        w.appendChild(el("div", "d", desc));
+        s.appendChild(w);
+        return s;
     }
     function render(root, r) {
         root.textContent = "";
-        if (!document.getElementById("rp-css")) { const s = el("style"); s.id = "rp-css"; s.textContent = CSS; document.head.appendChild(s); }
+        if (!document.getElementById("rp-css")) {
+            const s = el("style");
+            s.id = "rp-css";
+            s.textContent = CSS;
+            document.head.appendChild(s);
+        }
         const wrap = el("div", "rp");
         const paper = el("div", "rp-paper");
         const [stampText, stampCls] = STAMP[r.status] || [r.status, "mute"];
         if (!r.verified) {
             paper.appendChild(el("div", "rp-eyebrow", "Investigation report"));
-            paper.appendChild(el("div", "rp-empty", r.summary)); wrap.appendChild(paper); root.appendChild(wrap); return;
+            paper.appendChild(el("div", "rp-empty", r.summary));
+            wrap.appendChild(paper);
+            root.appendChild(wrap);
+            return;
         }
         // toolbar (not printed)
         const bar = el("div", "rp-bar");
         bar.appendChild(el("strong", "", "Investigation report")); bar.appendChild(el("span", "sp"));
-        const mkb = (t, fn, cls) => { const b = el("button", cls || "", t); b.type = "button"; b.addEventListener("click", fn); bar.appendChild(b); };
+        const mkb = (t, fn, cls) => {
+            const b = el("button", cls || "", t); b.type = "button";
+            b.addEventListener("click", fn);
+            bar.appendChild(b);
+        };
         mkb("Print / Save as PDF", () => window.print(), "pri");
         mkb("Download Markdown", () => download(`report-${r.invoice_number}.md`, markdown(r), "text/markdown"));
         mkb("Download JSON", () => download(`report-${r.invoice_number}.json`, JSON.stringify(r, null, 2), "application/json"));
@@ -124,11 +166,11 @@
         // pipeline
         paper.appendChild(el("h2", "", "How the decision was reached"));
         const fl = el("div", "rp-flow");
-        fl.appendChild(stage(S.code.failed ? "bad" : "good", "\u2699\ufe0f", "Code checks", `${S.code.passed} of ${S.code.total} passed`));
-        fl.appendChild(stage(!r.fraud ? "" : r.fraud.risk === "high" ? "bad" : r.fraud.risk === "medium" ? "warn" : "good", "\ud83d\udea9", "Fraud signals", r.fraud ? `${r.fraud.risk} risk, ${S.fraud.signals} signal(s)` : "not run"));
-        fl.appendChild(stage(S.ai.ran ? "warn" : "", "\ud83e\udd16", "AI suggestion", S.ai.suggested ? `suggested ${S.ai.suggested}` : "none"));
-        fl.appendChild(stage(S.gate.overruled ? "bad" : "good", "\ud83d\udee1\ufe0f", "Safety gates", S.gate.overruled ? "overruled the AI" : "no override needed"));
-        fl.appendChild(stage(S.human.decision ? (S.human.decision === "approve" ? "good" : "bad") : "", "\ud83d\udc64", "A person", S.human.decision ? `${S.human.reviewer}: ${S.human.decision}` : "not decided yet"));
+        fl.appendChild(stage(S.code.failed ? "bad" : "good", "code_check", "Code checks", `${S.code.passed} of ${S.code.total} passed`));
+        fl.appendChild(stage(!r.fraud ? "" : r.fraud.risk === "high" ? "bad" : r.fraud.risk === "medium" ? "warn" : "good", "fraud_signal", "Fraud signals", r.fraud ? `${r.fraud.risk} risk, ${S.fraud.signals} signal(s)` : "not run"));
+        fl.appendChild(stage(S.ai.ran ? "warn" : "", "ai", "AI suggestion", S.ai.suggested ? `suggested ${S.ai.suggested}` : "none"));
+        fl.appendChild(stage(S.gate.overruled ? "bad" : "good", "gate", "Safety gates", S.gate.overruled ? "overruled the AI" : "no override needed"));
+        fl.appendChild(stage(S.human.decision ? (S.human.decision === "approve" ? "good" : "bad") : "", "human", "A person", S.human.decision ? `${S.human.reviewer}: ${S.human.decision}` : "not decided yet"));
         paper.appendChild(fl);
 
         // findings
@@ -138,10 +180,12 @@
         const list = el("div");
         [...r.claims].sort((a, b) => Number(a.supported) - Number(b.supported)).forEach(c => {
             const f = el("div", "rp-f " + (c.supported ? "yes" : "no") + (c.untrusted ? " untrusted" : "")); f.dataset.ok = c.supported ? "1" : "0";
-            f.appendChild(el("div", "ic", c.supported ? "\u2713" : "\u2717"));
+            const ic = el("div", "ic"); ic.appendChild(svgIcon(c.supported ? "check" : "x")); f.appendChild(ic);
             const b = el("div"); b.appendChild(el("div", "tx", c.claim));
             if (c.detail) b.appendChild(el("div", "det", c.detail));
-            const m = el("div", "meta"); m.appendChild(el("span", "chip " + (c.basis === "ai" ? "ai" : c.basis === "human" ? "human" : c.basis === "gate" ? "bad" : ""), `${BASIS_ICON[c.basis] || ""} ${c.basis_label}`));
+            const m = el("div", "meta");
+            const chip = el("span", "chip " + (c.basis === "ai" ? "ai" : c.basis === "human" ? "human" : c.basis === "gate" ? "bad" : ""));
+            chip.appendChild(svgIcon(c.basis)); chip.appendChild(document.createTextNode(" " + c.basis_label)); m.appendChild(chip);
             if (c.untrusted) m.appendChild(el("span", "chip", "quoted as written, not trusted"));
             c.records.forEach(x => m.appendChild(idChip(x))); b.appendChild(m); f.appendChild(b); list.appendChild(f);
         });
@@ -153,7 +197,14 @@
         if (!r.steps.length) paper.appendChild(el("div", "rp-empty", "The investigator made no lookups for this invoice."));
         else {
             const tl2 = el("div", "rp-tl");
-            r.steps.forEach((st, i) => { const e = el("div", "rp-ev"); e.dataset.n = String(i + 1); e.appendChild(el("div", "a", `${ICON[st.tool] || "\ud83d\udd0d"} ${TOOL[st.tool] || st.tool}`)); e.appendChild(el("div", "b", st.finding)); const m = el("div", "meta"); st.records.forEach(x => m.appendChild(idChip(x))); e.appendChild(m); tl2.appendChild(e); });
+            r.steps.forEach((st, i) => {
+                const e = el("div", "rp-ev"); e.dataset.n = String(i + 1);
+                const a = el("div", "a"); a.appendChild(svgIcon(st.tool)); a.appendChild(document.createTextNode(" " + (TOOL[st.tool] || st.tool))); e.appendChild(a);
+                e.appendChild(el("div", "b", st.finding));
+                const m = el("div", "meta");
+                st.records.forEach(x => m.appendChild(idChip(x))); e.appendChild(m);
+                tl2.appendChild(e);
+            });
             paper.appendChild(tl2);
         }
 
@@ -177,7 +228,7 @@
         const idx = new Map();
         const add = (x, from) => { const k = x.type + "|" + x.id; if (!idx.has(k)) idx.set(k, { x, n: 0 }); idx.get(k).n += from; };
         r.claims.forEach(c => c.records.forEach(x => add(x, 1))); r.steps.forEach(s => s.records.forEach(x => add(x, 1))); r.precedents.forEach(p => p.records.forEach(x => add(x, 1)));
-        const t = el("table", "rp-tbl"); const th = el("tr"); ["Record type", "Id", "Cited"].forEach(h => th.appendChild(el("th", "", h))); t.appendChild(th);
+        const t = el("table", "rp-tbl"); const th = el("tr");["Record type", "Id", "Cited"].forEach(h => th.appendChild(el("th", "", h))); t.appendChild(th);
         [...idx.values()].sort((a, b) => a.x.type.localeCompare(b.x.type)).forEach(({ x, n }) => { const tr = el("tr"); tr.appendChild(el("td", "", x.type.replace(/_/g, " "))); tr.appendChild(el("td", "", String(x.id))); tr.appendChild(el("td", "", `${n}\u00d7`)); t.appendChild(tr); });
         paper.appendChild(t);
         paper.appendChild(el("div", "rp-foot", `Built only from records already stored for this company: nothing in this report was generated by an AI after the fact. Text typed by people or written by the AI is quoted as data and is never treated as an instruction. Report ${r.report_id}.`));

@@ -5,7 +5,25 @@
     const dur = s => s == null ? "" : s < 1 ? "instant" : s < 90 ? `${Math.round(s)} sec` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 86400)} days`;
     const clock = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
     const when = t => t ? new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
-    const ICON = { received: "✉", verified: "✔", fraud: "⛨", human: "☺", payout: "➤", webhook: "⇄", ledger: "☰", reconciled: "≡" };
+    const P = {
+        received: ["m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7", "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"],
+        verified: ["M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", "M14 2v4a2 2 0 0 0 2 2h4", "m9 15 2 2 4-4"],
+        fraud: ["M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z", "M12 8v4", "M12 16h.01"],
+        human: ["m16 11 2 2 4-4", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"],
+        payout: ["M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z", "m21.854 2.147-10.94 10.939"],
+        webhook: ["M8 3 4 7l4 4", "M4 7h16", "m16 21 4-4-4-4", "M20 17H4"],
+        ledger: ["M12 7v14", "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"],
+        reconciled: ["M21.801 10A10 10 0 1 1 17 3.335", "m9 11 3 3L22 4"],
+        done: ["M20 6 9 17l-5-5"],
+        problem: ["M12 8v4", "M12 16h.01"],
+        skipped: ["M5 12h14"]
+    };
+    const svgIcon = key => {
+        const NS = "http://www.w3.org/2000/svg", s = document.createElementNS(NS, "svg");
+        s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true");
+        (P[key] || []).forEach(d => { const p = document.createElementNS(NS, "path"); p.setAttribute("d", d); s.appendChild(p); });
+        return s;
+    };
     const SEG = ["#1f4e8c", "#2e9e7a", "#6b4fbb", "#c77700", "#0b6b4f", "#3b7dd8", "#8a5200", "#b3261e"];
 
     const CSS = `
@@ -25,6 +43,7 @@
 .lc-st.flow:not(:last-child)::before{background:repeating-linear-gradient(90deg,#2e9e7a 0 8px,#cfe9df 8px 16px);background-size:32px 4px;animation:lcf 0.9s linear infinite}
 @keyframes lcf{to{background-position:32px 0}}
 .lc-nd{width:44px;height:44px;border-radius:50%;margin:0 auto 8px;display:grid;place-items:center;font-size:18px;border:3px solid #e4e2da;background:#fff;color:#8a8a82;position:relative;z-index:1;transition:all .4s}
+.lc-nd svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .lc-st.done .lc-nd{background:#0b6b4f;border-color:#0b6b4f;color:#fff;box-shadow:0 4px 12px rgba(11,107,79,.25)}
 .lc-st.skipped .lc-nd{border-style:dashed;background:#faf9f5}
 .lc-st.problem .lc-nd{background:#b3261e;border-color:#b3261e;color:#fff;animation:lcs .5s 2}
@@ -63,7 +82,7 @@
             root.textContent = "";
             const top = el("div", "lc-top"); top.appendChild(el("h2", "", `Payment lifecycle: invoice ${d.invoice_number}`));
             const pill = el("span", "lc-pill " + (d.has_problem ? "bad" : d.complete ? "done" : "live"));
-            if (d.has_problem) pill.textContent = "Needs attention"; else if (d.complete) pill.textContent = "✓ Complete"; else { pill.appendChild(el("i")); pill.appendChild(document.createTextNode("Live")); }
+            if (d.has_problem) pill.textContent = "Needs attention"; else if (d.complete) pill.textContent = "Complete"; else { pill.appendChild(el("i")); pill.appendChild(document.createTextNode("Live")); }
             top.appendChild(pill); const ck = el("span", "lc-clock", ""); ck.title = d.complete ? "Total time from arrival to the last step" : "Time since the invoice arrived"; top.appendChild(ck); root.appendChild(top);
             const settle = () => { ck.textContent = d.complete && d.total_seconds != null ? clock(d.total_seconds) : clock(((Date.now() - new Date(d.started_at)) / 1000)); };
             settle(); clearInterval(state.tick); if (!d.complete) state.tick = setInterval(settle, 1000);
@@ -77,7 +96,9 @@
                 const nextPending = d.stages[i + 1] && d.stages[i + 1].state === "pending" && i + 1 === d.active && (st.state === "done" || st.state === "skipped");
                 if (active) cls.push("active"); if (nextPending) cls.push("flow"); if (changed.includes(st.key)) cls.push("just");
                 const c = el("div", cls.join(" "));
-                c.appendChild(el("div", "lc-nd", st.state === "problem" ? "!" : st.state === "done" ? "✓" : st.state === "skipped" ? "−" : ICON[st.key] || String(i + 1)));
+                const nd = el("div", "lc-nd");
+                nd.appendChild(svgIcon(st.state === "problem" ? "problem" : st.state === "done" ? "done" : st.state === "skipped" ? "skipped" : st.key));
+                c.appendChild(nd);
                 const b = el("div"); b.appendChild(el("div", "lc-nm", st.label));
                 b.appendChild(el("div", "lc-tm", st.at ? new Date(st.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : st.state === "skipped" ? "not needed" : active ? "in progress" : "waiting"));
                 b.appendChild(el("div", "lc-dt", st.detail)); if (st.seconds != null && st.state === "done") b.appendChild(el("span", "lc-took", "+" + dur(st.seconds)));
@@ -90,8 +111,10 @@
             const timed = d.stages.filter(s => s.seconds != null && s.seconds > 0 && s.state === "done"), sum = timed.reduce((a, s) => a + s.seconds, 0);
             if (timed.length && sum > 0) {
                 const seg = el("div", "lc-seg"), leg = el("div", "lc-leg");
-                timed.forEach((s, i) => { const x = el("i"); x.style.background = SEG[d.stages.findIndex(q => q.key === s.key) % SEG.length]; x.style.flex = String(Math.max(s.seconds, sum * 0.02)); x.title = `${s.label}: ${dur(s.seconds)}`; seg.appendChild(x);
-                    const l = el("span"); const dot = el("i"); dot.style.background = x.style.background; l.appendChild(dot); l.appendChild(document.createTextNode(`${s.label} ${dur(s.seconds)}`)); leg.appendChild(l); });
+                timed.forEach((s, i) => {
+                    const x = el("i"); x.style.background = SEG[d.stages.findIndex(q => q.key === s.key) % SEG.length]; x.style.flex = String(Math.max(s.seconds, sum * 0.02)); x.title = `${s.label}: ${dur(s.seconds)}`; seg.appendChild(x);
+                    const l = el("span"); const dot = el("i"); dot.style.background = x.style.background; l.appendChild(dot); l.appendChild(document.createTextNode(`${s.label} ${dur(s.seconds)}`)); leg.appendChild(l);
+                });
                 b1.appendChild(seg); b1.appendChild(leg);
                 const slow = timed.reduce((m, s) => (s.seconds > m.seconds ? s : m), timed[0]);
                 b1.appendChild(el("div", "lc-dt", `Slowest step: ${slow.label} (${dur(slow.seconds)}).`));
@@ -108,7 +131,8 @@
             let d = null;
             try { const r = await fetch(`${api}/lifecycle/${encodeURIComponent(ref)}`); if (r.ok) d = await r.json(); } catch (e) { }
             if (state.stopped) return;
-            if (d) { const same = state.prev && JSON.stringify(state.prev.stages.map(s => [s.state, s.at])) === JSON.stringify(d.stages.map(s => [s.state, s.at])); if (!same) draw(d); else state.prev = d;
+            if (d) {
+                const same = state.prev && JSON.stringify(state.prev.stages.map(s => [s.state, s.at])) === JSON.stringify(d.stages.map(s => [s.state, s.at])); if (!same) draw(d); else state.prev = d;
                 if (d.complete) { return; }
             }
             state.timer = setTimeout(poll, document.hidden ? 15000 : d && d.has_problem ? 10000 : 4000);

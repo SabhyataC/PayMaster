@@ -37,9 +37,9 @@
         }
 
         main {
-            max-width: 1040px;
+            max-width: 1500px;
             margin: 0;
-            padding: 22px 28px;
+            padding: 8px 28px;
             min-width: 0;
         }
 
@@ -48,9 +48,9 @@
         }
 
         header {
-            background: #fff;
-            border-bottom: 1px solid var(--line);
-            padding: 12px 16px;
+            /* background: #fff; */
+            /* border-bottom: 1px solid var(--line); */
+            padding: 6px 16px;
             display: flex;
             gap: 12px;
             align-items: center;
@@ -85,12 +85,6 @@
             border-radius: 6px;
             font: inherit;
             cursor: pointer;
-        }
-
-        main {
-            max-width: 980px;
-            margin: 0 auto;
-            padding: 16px;
         }
 
         .summary {
@@ -610,6 +604,18 @@
             dominant-baseline: central;
         }
 
+        .gnode .ico {
+            fill: none;
+            stroke: #e6edf7;
+            stroke-width: 1.7;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .gnode.pending .ico {
+            opacity: .45;
+        }
+
         .gnode.ok .core {
             fill: #12362c;
             stroke: #34d399;
@@ -780,7 +786,7 @@
         <div id="sidebar"></div>
         <div class="content">
             <header>
-                <strong>Trust Graph</strong>
+                <h2>Trust Graph</h2>
                 <form id="f"><input id="ref" placeholder="Invoice number, e.g. NW-1001"
                         aria-label="Invoice number"><button>Show</button></form>
             </header>
@@ -883,8 +889,15 @@
                 webhook: [900, 110], ledger: [900, 260], reconcile: [900, 410]
             };
             const ICON = {
-                vendor: "\ud83c\udfe2", invoice: "\ud83e\uddfe", po: "\ud83d\udccb", delivery: "\ud83d\udce6", approval: "\u270d\ufe0f",
-                payout: "\ud83d\udcb8", webhook: "\ud83d\udd14", ledger: "\ud83d\udcd2", reconcile: "\u2696\ufe0f"
+                vendor: ["M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z", "M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2", "M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2", "M10 6h4", "M10 10h4", "M10 14h4", "M10 18h4"],
+                po: ["M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z", "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2", "M12 11h4", "M12 16h4", "M8 11h.01", "M8 16h.01"],
+                delivery: ["m7.5 4.27 9 5.15", "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
+                invoice: ["M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z", "M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8", "M12 17.5v-11"],
+                approval: ["M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z", "m9 12 2 2 4-4"],
+                payout: ["M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z", "M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z", "M6 12h.01", "M18 12h.01"],
+                webhook: ["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10.3 21a1.94 1.94 0 0 0 3.4 0"],
+                ledger: ["M12 7v14", "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"],
+                reconcile: ["M12 3v18", "m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z", "m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z", "M7 21h10", "M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"]
             };
             const EDGES = [["vendor", "invoice"], ["po", "invoice"], ["delivery", "invoice"], ["invoice", "approval"], ["approval", "payout"],
             ["payout", "webhook"], ["webhook", "ledger"], ["ledger", "reconcile"]];
@@ -923,9 +936,11 @@
                 if (n.state === "problem") g.appendChild(sv("circle", { class: "pulse", cx: x, cy: y, r: 36 }));
                 g.appendChild(sv("circle", { class: "core", cx: x, cy: y, r: 36 }));
                 g.appendChild(sv("circle", { class: "sel-ring", cx: x, cy: y, r: 45 }));
-                g.appendChild(sv("text", { class: "i", x, y: y + 1 }, ICON[n.key] || "\u2022"));
+                const ic = sv("g", { class: "ico", transform: `translate(${x - 15} ${y - 15}) scale(1.25)` });
+                (ICON[n.key] || []).forEach(p => ic.appendChild(sv("path", { d: p })));
+                g.appendChild(ic);
                 g.appendChild(sv("text", { class: "t", x, y: y + 60 }, n.title));
-                g.appendChild(sv("text", { class: "s", x, y: y + 75 }, n.state === "ok" ? "\u2713 VERIFIED" : n.state === "problem" ? "\u2717 PROBLEM" : "NOT REACHED YET"));
+                g.appendChild(sv("text", { class: "s", x, y: y + 75 }, n.state === "ok" ? "VERIFIED" : n.state === "problem" ? "PROBLEM" : "NOT REACHED YET"));
                 if (n.kind === "ai") {
                     const b = sv("g", { class: "aibadge" });
                     b.appendChild(sv("rect", { x: x + 18, y: y - 48, width: 30, height: 18, rx: 9 }));

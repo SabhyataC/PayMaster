@@ -137,6 +137,110 @@
             margin-bottom: 16px;
         }
 
+        .attn {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .attn-h {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .attn-h h3 {
+            margin: 0;
+            font-size: 15px;
+        }
+
+        .attn-pill {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 99px;
+            background: #fdf0e4;
+            color: #b4531a;
+        }
+
+        .attn-pill.ok {
+            background: #e6f3ee;
+            color: #0b6b4f;
+        }
+
+        .attn-sec {
+            margin-top: 14px;
+        }
+
+        .attn-st {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            color: var(--muted);
+        }
+
+        .attn-st .n {
+            background: #f1efe8;
+            border-radius: 99px;
+            padding: 0 8px;
+            font-size: 11px;
+        }
+
+        .attn-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            border: 1px solid var(--line);
+            border-left: 3px solid var(--accent, #c77700);
+            border-radius: 8px;
+        }
+
+        .attn-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .attn-sub {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .attn-days {
+            background: #f1efe8;
+            border-radius: 99px;
+            padding: 1px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .attn-acts {
+            display: flex;
+            gap: 6px;
+        }
+
+        .attn-row button.attn-act {
+            background: none;
+            color: var(--brand);
+            border: 1px solid var(--brand);
+            padding: 2px 10px;
+            font-size: 12px;
+            border-radius: 8px;
+        }
+
+        .attn-row button.attn-act:hover {
+            background: var(--brand);
+            color: #fff;
+        }
+
         button {
             background: var(--brand);
             color: #fff;
@@ -171,6 +275,35 @@
             background: none;
             color: var(--brand);
             border: 1px solid var(--brand);
+        }
+
+        .ag-theme-quartz a.tg {
+            display: inline-block;
+            padding: 1px 10px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--brand);
+            border: 1px solid var(--brand);
+            border-radius: 8px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .ag-theme-quartz .ag-cell button,
+        .ag-theme-quartz .ag-cell a.tg {
+            height: 24px;
+            padding: 8px 12px;
+            line-height: 22px;
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
+            box-sizing: border-box;
+            border-radius: 4px;
+        }
+
+        .ag-theme-quartz .ag-cell a.tg:hover {
+            background: var(--brand);
+            color: #fff;
         }
 
         .ag-theme-quartz button:hover {
@@ -594,10 +727,16 @@
         };
         // Plain words for people; the stored value (used for sorting and filters) is unchanged.
         const LABEL = {
-            received: "Received", approved: "Approved", held: "Waiting for a person", rejected: "Rejected",
+            received: "Invoice Received", approved: "Approved", held: "Waiting for a person", rejected: "Rejected",
             paid: "Paid", needs_review: "Needs a fix", success: "Paid out", submitted: "Sent to PayPal",
             pending: "Pending", unclaimed: "Unclaimed by vendor", failed: "Failed", unknown: "Unknown, check PayPal",
             open: "Open", resolved: "Resolved", returned: "Returned", created: "Created"
+        };
+        const fmtDate = p => {
+            if (!p.value) return "";
+            const d = new Date(p.value);
+            if (isNaN(d)) return p.value;
+            return d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "numeric", minute: "2-digit", hour12: true }).replace(",", "");
         };
         function badge(p) {
             const c = BADGE[p.value] || "#777777";
@@ -614,7 +753,9 @@
             au.addEventListener("click", () => showAudit(p.data.id));
             box.appendChild(au);
             const tg = document.createElement("a");   // Trust Graph: the evidence chain for this invoice
-            tg.textContent = "Trust graph"; tg.href = "trust.html?invoice=" + encodeURIComponent(p.data.id);
+            tg.textContent = "Trust Graph";
+            tg.className = "tg";
+            tg.href = "trust.html?invoice=" + encodeURIComponent(p.data.id);
             tg.style.marginRight = "6px";
             box.appendChild(tg);
             if (PM.canAct() && p.data.status === "approved") {
@@ -663,13 +804,13 @@
         const iApi = agGrid.createGrid($("igrid"), {
             columnDefs: [
                 { field: "invoice_number", headerName: "Number", width: 140 },
-                { field: "vendor", width: 180 },
-                { field: "amount", width: 110 },
+                { field: "vendor", width: 150 },
+                { field: "amount", width: 90 },
                 { field: "currency", width: 100 },
-                { field: "status", width: 130, cellRenderer: badge },
-                { field: "why", headerName: "Why held", flex: 2, minWidth: 260, tooltipField: "why" },
-                { field: "fraud_risk", headerName: "Fraud risk", width: 120 },
-                { field: "received_at", headerName: "Received", flex: 1 },
+                { field: "status", width: 170, cellRenderer: badge },
+                { field: "why", headerName: "Why held", flex: 2, minWidth: 160, tooltipField: "why" },
+                { field: "fraud_risk", headerName: "Fraud risk", width: 100 },
+                { field: "received_at", headerName: "Invoice Received on", width: 160, valueFormatter: fmtDate },
                 { headerName: "Actions", width: 340, sortable: false, filter: false, cellRenderer: invoiceActions },
             ],
             defaultColDef: { sortable: true, filter: true, resizable: true },
@@ -709,18 +850,30 @@
             const box = $("attn");
             try {
                 const r = await fetch(`${API}/attention`);
-                if (!r.ok) { box.textContent = ""; return; }
+                if (!r.ok) { box.className = ""; box.textContent = ""; return; }
                 const d = await r.json();
                 const e = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-                const sec = (title, rows, fmt) => rows.length
-                    ? `<div style="margin:6px 0"><b>${title} (${rows.length})</b><ul style="margin:4px 0 0 18px;padding:0">${rows.map(x => `<li>${fmt(x)} <span style="color:#6b6a63">· ${x.days}d</span></li>`).join("")}</ul></div>` : "";
+                const btn = (act, id, label) => `<button class="attn-act" data-act="${act}" data-id="${e(id)}">${label}</button>`;
+                const sec = (title, color, rows, fmt) => rows.length
+                    ? `<div class="attn-sec" style="--accent:${color}"><div class="attn-st">${title}<span class="n">${rows.length}</span></div>`
+                    + rows.map(x => {
+                        const [main, sub, acts] = fmt(x);
+                        return `<div class="attn-row"><div class="attn-main">${main}${sub ? `<div class="attn-sub">${sub}</div>` : ""}</div>`
+                            + `<span class="attn-days">${e(x.days)}d</span>${acts ? `<div class="attn-acts">${acts}</div>` : ""}</div>`;
+                    }).join("") + `</div>` : "";
                 const html =
-                    sec("Waiting for a delivery to be recorded", d.waiting_delivery, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}, ${e(x.po)} delivered ${x.delivered} <button class="attn-act" data-act="reverify" data-id="${e(x.id)}">Re-verify</button>`) +
-                    sec("Documents waiting for a vendor or PO", d.needs_fix, x => `${e(x.file)}: ${e(x.reason)} <button class="attn-act" data-act="retry" data-id="${e(x.id)}">Retry</button> <button class="attn-act" data-act="delete" data-id="${e(x.id)}">Delete</button>`) + +
-                    sec("Approved, ready for a person to pay", d.ready_to_pay, x => `${e(x.invoice)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`) +
-                    sec("Delivered, no invoice yet", d.delivered_no_invoice, x => `${e(x.po)} (${e(x.vendor)}) ${x.amount} ${e(x.currency)}`);
-                box.innerHTML = `<b style="color:${d.total ? "#b4531a" : "#0b6b4f"}">Needs attention: ${d.total}</b>` + (html || `<div style="color:#6b6a63">Nothing is waiting.</div>`);
-            } catch (err) { box.textContent = ""; }
+                    sec("Waiting for a delivery", "#c77700", d.waiting_delivery, x =>
+                        [`<b>${e(x.invoice)}</b> · ${e(x.vendor)}`, `${e(x.amount)} ${e(x.currency)} · PO ${e(x.po)}, delivered ${e(x.delivered)}`, btn("reverify", x.id, "Re-verify")]) +
+                    sec("Documents waiting for a vendor or PO", "#b3261e", d.needs_fix, x =>
+                        [`<b>${e(x.file)}</b>`, e(x.reason), btn("retry", x.id, "Retry") + btn("delete", x.id, "Delete")]) +
+                    sec("Approved, ready to pay", "#0b6b4f", d.ready_to_pay, x =>
+                        [`<b>${e(x.invoice)}</b> · ${e(x.vendor)}`, `${e(x.amount)} ${e(x.currency)}`, ""]) +
+                    sec("Delivered, no invoice yet", "#1f4e8c", d.delivered_no_invoice, x =>
+                        [`<b>${e(x.po)}</b> · ${e(x.vendor)}`, `${e(x.amount)} ${e(x.currency)}`, ""]);
+                box.className = "attn";
+                box.innerHTML = `<div class="attn-h"><h3>Needs attention</h3><span class="attn-pill${d.total ? "" : " ok"}">${d.total ? d.total + " open" : "All clear"}</span></div>`
+                    + (html || `<div class="attn-sub" style="margin-top:8px">Nothing is waiting.</div>`);
+            } catch (err) { box.className = ""; box.textContent = ""; }
         }
 
         async function loadInvoices() {
@@ -880,7 +1033,9 @@
                 {
                     headerName: "Evidence", width: 130, sortable: false, filter: false, cellRenderer: (p) => {
                         const a = document.createElement("a");
-                        a.textContent = "Trust graph"; a.href = "trust.html?payment=" + encodeURIComponent(p.data.id);
+                        a.textContent = "Trust graph";
+                        a.className = "tg";
+                        a.href = "trust.html?payment=" + encodeURIComponent(p.data.id);
                         a.addEventListener("click", (ev) => ev.stopPropagation());
                         return a;
                     }
