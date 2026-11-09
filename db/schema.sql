@@ -731,3 +731,111 @@ CREATE TABLE IF NOT EXISTS notification_log (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_notiflog_outbox ON notification_log (outbox_id);
+
+-- ===== Tamper-evident audit log =====
+-- 1) Rows can never be changed or deleted (triggers; only the one-time chain seal below is allowed).
+-- 2) A background "sealer" links rows into a per-company SHA-256 hash chain, so any edit, deletion or
+--    reordering is detected by audit_verify(). Writers never wait for each other: sealing is separate.
+-- 3) For full protection also run the app as a role without ownership: see docs/audit-integrity.md.
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS seal_seq BIGINT;
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS prev_hash TEXT;
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS row_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS audit_chain_pos ON audit_log (company_id, seal_seq) WHERE seal_seq IS NOT NULL;
+CREATE INDEX IF NOT EXISTS audit_unsealed ON audit_log (id) WHERE seal_seq IS NULL;
+
+CREATE TABLE IF NOT EXISTS audit_heads (
+    company_id UUID PRIMARY KEY REFERENCES companies (id),
+    seq BIGINT NOT NULL,
+    head TEXT NOT NULL,
+    sealed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION audit_content(a audit_log) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT concat_ws('|', a.id, a.company_id, a.stage, a.entity_type, a.entity_id, a.decision, a.reason,
+                     a.inputs::text, a.actor, to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US'))
+$$;
+
+CREATE OR REPLACE FUNCTION audit_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'audit_log is append-only: rows cannot be deleted' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- the only permitted update: sealing an unsealed row, touching nothing but the three chain columns
+    IF OLD.seal_seq IS NULL AND NEW.seal_seq IS NOT NULL AND audit_content(OLD) = audit_content(NEW) THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'audit_log is append-only: rows cannot be changed' USING ERRCODE = 'insufficient_privilege';
+END $$;
+
+CREATE OR REPLACE FUNCTION audit_guard_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log is append-only: it cannot be truncated' USING ERRCODE = 'insufficient_privilege';
+END $$;
+
+DROP TRIGGER IF EXISTS audit_no_change ON audit_log;
+CREATE TRIGGER audit_no_change BEFORE UPDATE OR DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION audit_guard();
+DROP TRIGGER IF EXISTS audit_no_truncate ON audit_log;
+CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit_log FOR EACH STATEMENT EXECUTE FUNCTION audit_guard_truncate();
+
+-- Chain every committed, unsealed row (oldest first, per company). Only rows older than every transaction that
+-- is still open are sealed, so a row that commits late is never skipped. Returns how many rows were sealed.
+CREATE OR REPLACE FUNCTION audit_seal() RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE
+    r audit_log; n bigint := 0; cur_company uuid := NULL; v_seq bigint; v_prev text; v_hash text;
+    horizon bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;
+BEGIN
+    PERFORM pg_advisory_xact_lock(7340001);   -- one sealer at a time; writers are never blocked by it
+    FOR r IN SELECT * FROM audit_log WHERE seal_seq IS NULL AND xmin::text::bigint < horizon ORDER BY company_id, id LOOP
+        IF cur_company IS DISTINCT FROM r.company_id THEN
+            IF cur_company IS NOT NULL THEN
+                INSERT INTO audit_heads (company_id, seq, head) VALUES (cur_company, v_seq, v_prev)
+                ON CONFLICT (company_id) DO UPDATE SET seq = EXCLUDED.seq, head = EXCLUDED.head, sealed_at = now();
+            END IF;
+            cur_company := r.company_id;
+            SELECT ah.seq, ah.head INTO v_seq, v_prev FROM audit_heads ah WHERE ah.company_id = cur_company;
+            IF NOT FOUND THEN v_seq := 0; v_prev := repeat('0', 64); END IF;
+        END IF;
+        v_seq := v_seq + 1;
+        v_hash := encode(sha256(convert_to(v_prev || '|' || v_seq || '|' || audit_content(r), 'UTF8')), 'hex');
+        UPDATE audit_log SET seal_seq = v_seq, prev_hash = v_prev, row_hash = v_hash WHERE id = r.id;
+        v_prev := v_hash; n := n + 1;
+    END LOOP;
+    IF cur_company IS NOT NULL THEN
+        INSERT INTO audit_heads (company_id, seq, head) VALUES (cur_company, v_seq, v_prev)
+        ON CONFLICT (company_id) DO UPDATE SET seq = EXCLUDED.seq, head = EXCLUDED.head, sealed_at = now();
+    END IF;
+    RETURN n;
+END $$;
+
+-- Recompute the whole chain for one company and compare it with what is stored.
+-- ok = true means no sealed row was edited, removed, inserted or reordered since it was sealed.
+CREATE OR REPLACE FUNCTION audit_verify(cid uuid, OUT ok boolean, OUT checked bigint, OUT broken_seq bigint,
+                                        OUT reason text, OUT head text, OUT unsealed bigint)
+LANGUAGE plpgsql AS $$
+DECLARE
+    r audit_log; v_prev text := repeat('0', 64); v_expect bigint := 0; v_hash text; hd audit_heads;
+BEGIN
+    ok := true; checked := 0; broken_seq := NULL; reason := NULL;
+    FOR r IN SELECT * FROM audit_log al WHERE al.company_id = cid AND al.seal_seq IS NOT NULL ORDER BY al.seal_seq LOOP
+        v_expect := v_expect + 1;
+        IF r.seal_seq <> v_expect THEN
+            ok := false; broken_seq := v_expect; reason := 'a row is missing from the chain'; EXIT;
+        END IF;
+        IF r.prev_hash <> v_prev THEN
+            ok := false; broken_seq := r.seal_seq; reason := 'the link to the previous row is broken'; EXIT;
+        END IF;
+        v_hash := encode(sha256(convert_to(v_prev || '|' || r.seal_seq || '|' || audit_content(r), 'UTF8')), 'hex');
+        IF v_hash <> r.row_hash THEN
+            ok := false; broken_seq := r.seal_seq; reason := 'this row was changed after it was recorded'; EXIT;
+        END IF;
+        v_prev := v_hash; checked := checked + 1;
+    END LOOP;
+    SELECT * INTO hd FROM audit_heads ah2 WHERE ah2.company_id = cid;
+    IF ok AND FOUND AND (hd.seq <> checked OR hd.head <> v_prev) THEN
+        ok := false; broken_seq := checked + 1; reason := 'rows at the end of the chain were removed';
+    ELSIF ok AND NOT FOUND AND checked > 0 THEN
+        ok := false; reason := 'the chain head record is missing';
+    END IF;
+    head := v_prev;
+    SELECT count(*) INTO unsealed FROM audit_log al2 WHERE al2.company_id = cid AND al2.seal_seq IS NULL;
+END $$;

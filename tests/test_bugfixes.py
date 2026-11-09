@@ -251,7 +251,7 @@ def test_b8_reverify():
     r = client.post(f"/extractions/{ext3}/retry", headers=reviewer)
     check("an accepted upload cannot be 'retried' (409)", r.status_code == 409)
     html = (ROOT / "console" / "index.html").read_text(encoding="utf-8")
-    check("the console shows Re-verify and Retry buttons", 'data-act="reverify"' in html and 'data-act="retry"' in html)
+    check("the console shows Re-verify and Retry buttons", 'data-act="${act}"' in html and 'btn("reverify"' in html and 'btn("retry"' in html)
 
 
 def test_b8_more():

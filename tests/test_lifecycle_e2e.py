@@ -143,8 +143,61 @@ def test_lifecycle_paypal_failure():
     check("Trust Graph is not complete", t["verdict"] != "complete", t["verdict"])
 
 
+def _stub_reader(fields):
+    """Replace only the Gemini call inside Intake. Everything after it (parsing, scoring, routing) is the real code."""
+    from backend import intake
+    reply = json.dumps({"fields": fields, "field_confidence": {k: 1.0 for k in intake.FIELDS}})
+    intake._call_model = lambda contents: ("stub-model", reply)
+
+
+def test_upload_to_reconcile():
+    section("E2E from the UPLOAD button: file in, reconciled payment and a complete Trust Graph out")
+    from backend.db import get_conn as gc
+    install_hostile_stub(); _setup_webhooks()
+    w = world(); fake = FakePayPal(); install(fake)
+    rv = bearer(w["users"]["reviewer"][0])
+    vendor = one("SELECT name FROM vendors WHERE id = %s", (w["vid"],))[0]
+    email = one("SELECT destination_email FROM vendor_bank_history WHERE vendor_id = %s AND valid_to IS NULL", (w["vid"],))[0]
+    num = uniq("UP")
+    _stub_reader({"vendor_name": vendor, "invoice_number": num, "invoice_date": "2026-11-01", "due_date": None, "po_number": w["po_number"],
+                  "line_items": [{"description": "goods", "quantity": 1, "unit_price": 100.0}], "currency": "USD", "tax": None, "total": 100.0,
+                  "bank_details": {"account_holder": None, "bank_name": None, "account_number": None, "routing_or_swift": None, "payee_email": email},
+                  "sender_email": email})
+    text = f"From: {email}\nSubject: Invoice {num}\n\nPlease pay {num}, total 100.00 USD, PO {w['po_number']}.".encode()
+    r = client.post("/invoices/upload", headers=rv, files={"file": (f"{num}.txt", text, "text/plain")})
+    check("upload accepted and read", r.status_code == 200 and r.json()["intake"] == "accepted", r.text[:300])
+    d = r.json(); inv = d["invoice_id"]
+    check("the invoice exists with the extracted amount and vendor", one("SELECT amount, vendor_id FROM invoices WHERE id = %s", (inv,))[0] == 100 and
+          one("SELECT vendor_id FROM invoices WHERE id = %s", (inv,))[0] == w["vid"])
+    check("intake is on the audit trail", one("SELECT count(*) FROM audit_log WHERE entity_id = %s AND stage = 'intake'", (inv,))[0] == 1)
+    check("Verify decided", d["verdict"] in ("approve", "hold", "reject"), d["verdict"])
+    ad = bearer(w["users"]["admin"][0])      # four-eyes: the person who uploaded may not release their own invoice
+    if d["invoice_status"] == "held":
+        client.post(f"/review/{inv}/decision", json={"decision": "approve", "note": "ok", "confirmed_with_vendor": True}, headers=ad)
+    check("a first-time payee is held for a second person, not paid automatically", d.get("payment") in ("held", "submitted"), d.get("payment"))
+    if one("SELECT count(*) FROM payments WHERE invoice_id = %s", (inv,))[0] == 0:
+        own = client.post(f"/review/{inv}/pay", json={}, headers=rv)
+        check("the uploader cannot release their own invoice", own.status_code in (403, 409, 422) and one("SELECT count(*) FROM payments WHERE invoice_id = %s", (inv,))[0] == 0, (own.status_code, own.text[:120]))
+        client.post(f"/review/{inv}/pay", json={}, headers=ad)
+    pay_row = one("SELECT status, paypal_batch_id FROM payments WHERE invoice_id = %s", (inv,))
+    check("a payment was sent exactly once", pay_row and pay_row[0] == "submitted" and fake.calls == 1, (pay_row, fake.calls))
+    _paypal_reports("SUCCESS", None)
+    _, wr = _webhook(pay_row[1])
+    check("PayPal's webhook settles it", wr.status_code == 200 and one("SELECT status FROM invoices WHERE id = %s", (inv,))[0] == "paid")
+    with gc() as conn:
+        reconcile.run_reconcile(conn, company_id=w["cid"], commit=True)
+    t = client.get(f"/trust/invoice/{inv}", headers=rv).json()
+    check("Trust Graph: every link green from a real upload", t["verdict"] == "complete" and all(v == "ok" for v in _nodes(t).values()), (t["verdict"], _nodes(t)))
+    again = client.post("/invoices/upload", headers=rv, files={"file": (f"{num}.txt", text, "text/plain")})
+    check("uploading the same file again is refused, not paid twice", again.status_code == 409 and fake.calls == 1, again.text[:120])
+    from backend import audit_chain
+    with gc() as conn:
+        v = audit_chain.verify(conn, w["cid"])
+    check("the whole story is on a valid, tamper-evident audit chain", v["ok"] and v["checked"] >= 4, v)
+
+
 def main():
-    for t in (test_full_lifecycle, test_lifecycle_with_timeout_then_recovery, test_lifecycle_paypal_failure):
+    for t in (test_full_lifecycle, test_lifecycle_with_timeout_then_recovery, test_lifecycle_paypal_failure, test_upload_to_reconcile):
         try:
             t()
         except Exception as e:

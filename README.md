@@ -145,6 +145,16 @@ python -m scripts.adversarial_eval --sleep 8 --out adv_real.csv   # same on the 
 
 Results, what failed along the way and the limits of this test are in `docs/ai-results.md`.
 
+### More than precision and recall
+
+`scripts/eval.py` also prints three further tables (and writes them with `--json metrics.json`; definitions in `backend/evalmetrics.py`, hand-checked in `tests/test_evalmetrics.py`):
+
+- **Investigation accuracy:** share of invoices decided right (bad stopped, clean approved), the exact hold-vs-reject match, the AI alone before the code gates versus the whole pipeline, and how many bad invoices the code gates rescued from the AI.
+- **Evidence correctness:** was the invoice stopped for the RIGHT reason (for a duplicate, `duplicate_invoice`), and were clean invoices shown any false evidence? Low fraud signals such as a new payee are context, not counted.
+- **Confidence calibration:** invoices grouped by the confidence the verdict reported, against how often the decision was right, with expected calibration error, Brier score and the count of wrong decisions made at 90% or more confidence.
+
+Code-only dev run (`--stub-ai`, 46 synthetic invoices): decision accuracy 100%; the stubbed AI alone 54.3% and the code gates rescued 21 bad invoices from it; right reason on 21 of 21 stopped bad invoices; 2 of 25 clean invoices were shown a medium `amount_near_limit` signal (the two near-limit invoices, expected). The stub reports confidence 1.0 for everything, so the calibration table needs the real AI to mean anything. Fill it in from `python -m scripts.eval --sleep 15 --json metrics.json`.
+
 ### Results (synthetic, self-written data)
 
 Positive = "this invoice is bad and must not be paid". A false negative is a bad invoice approved (the dangerous kind). A false positive is a clean invoice held for a person to look at (costs time, not money). All invoices are SYNTHETIC and written by the authors, so these numbers show the gates work on cases we thought of. They are not a claim about real-world accuracy.
@@ -253,12 +263,17 @@ Open an invoice's Trust graph page: below the chain it shows an investigation re
 
 ## Payment reliability, anomaly signals and new pages
 
-- **Retries:** PayPal calls retry on timeouts, 408, 429 and 5xx (3 tries, 2s/4s backoff plus jitter, `PAYPAL_MAX_TRIES`). A 4xx is permanent and never retried. Every try uses the same `PayPal-Request-Id`, so PayPal can never pay twice.
+- **Retries:** PayPal calls retry on timeouts, 408, 429 and 5xx (3 tries, 1s then 2s backoff plus up to 0.5s jitter, `PAYPAL_MAX_TRIES`). A 4xx is permanent and never retried. Every try uses the same `PayPal-Request-Id`, so PayPal can never pay twice.
 - **Unknown outcome:** if every try times out the payment is `unknown`. A background job (every 60s, and inside every reconcile run) re-sends with the same key only if the invoice is still `approved`; otherwise a person is alerted. Set `RECOVER_WORKER=0` to disable the loop.
 - **Vendor behaviour signals:** amount far above the vendor's normal (needs 3+ past invoices) and invoice bursts within 24 hours raise fraud risk.
 - **Pages:** `approvals.html` (approval history with overrides), `reconcile.html` (books vs PayPal status, run reconcile), and a payment lifecycle strip on the Trust Graph page (`GET /lifecycle/{ref}`).
 - **Tests:** `python -m tests.test_payment_reliability`, `test_anomaly`, `test_insights`, and `test_lifecycle_e2e` (invoice to reconcile through the real code, plus timeout and failure variants).
+- **Concurrency across processes:** `python -m tests.test_concurrent_processes` starts separate OS processes that release the same invoice at the same instant against a fake PayPal over real HTTP (eight at once, three invoices in parallel, pay vs reject, and PayPal answering 503 mid-race). PayPal must see exactly one payout per invoice.
 - **Real sandbox check:** `SANDBOX_RECEIVER_EMAIL=... python -m scripts.sandbox_smoke` sends one real sandbox payout and prints the Trust Graph verdict.
+
+## Audit log integrity
+
+`audit_log` is append-only: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. A background sealer (every 5 s, `AUDIT_SEAL_WORKER=0` disables it) links each company's rows into a SHA-256 hash chain, and `GET /audit/chain/verify` (and the **Audit integrity** page) recomputes the whole chain: an edited, removed, reordered or forged row is detected, including by someone with full database access. Writers never wait for each other. Details, the recommended separate runtime role and what this does not prove: `docs/audit-integrity.md`. Run `python -m tests.test_audit_chain`.
 
 ## Trust Graph
 

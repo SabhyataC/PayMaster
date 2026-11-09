@@ -43,10 +43,12 @@ def refuse_unless_dev():
 def wipe(conn):
     """DEV ONLY: empties every table so the seed can be re-run from scratch."""
     refuse_unless_dev()
-    conn.execute(
-        "TRUNCATE audit_log, ledger_entries, settlements, payments, invoices, "
-        "deliveries, purchase_orders, vendor_bank_history, vendors, users, companies CASCADE"
-    )
+    from backend.audit_chain import allow_reset
+    with allow_reset(conn):
+        conn.execute(
+            "TRUNCATE audit_log, ledger_entries, settlements, payments, invoices, "
+            "deliveries, purchase_orders, vendor_bank_history, vendors, users, companies CASCADE"
+        )
 
 def seed_company(conn):
     """The demo company every seeded row belongs to. Returns its id."""

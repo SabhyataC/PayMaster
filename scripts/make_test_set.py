@@ -293,8 +293,10 @@ def main():
         sys.exit(f"Refusing to erase database '{db_name}': its name must contain 'eval' or 'test'.\n"
                  "Create one (CREATE DATABASE paymaster_eval) and point DATABASE_URL at it.")
     with get_conn() as conn:
-        conn.execute("TRUNCATE audit_log, ledger_entries, settlements, payments, extractions, invoices, "
-                     "deliveries, purchase_orders, vendor_bank_history, vendors CASCADE")
+        from backend.audit_chain import allow_reset
+        with allow_reset(conn):
+            conn.execute("TRUNCATE audit_log, ledger_entries, settlements, payments, extractions, invoices, "
+                         "deliveries, purchase_orders, vendor_bank_history, vendors CASCADE")
         conn.execute("INSERT INTO companies (name) SELECT 'Eval Company (SYNTHETIC)' "
                      "WHERE NOT EXISTS (SELECT 1 FROM companies)")
         build(conn)

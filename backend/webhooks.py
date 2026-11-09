@@ -240,7 +240,9 @@ app.include_router(insights_router, dependencies=guard)
 @app.on_event("startup")
 def _start_alert_worker():
     from backend.notify import start_worker
+    from backend.audit_chain import start_sealer
     start_worker()
+    start_sealer()
     if os.environ.get("RECOVER_WORKER", "1") != "0":
         import threading, time as _t
 

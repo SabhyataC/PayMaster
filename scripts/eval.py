@@ -108,6 +108,17 @@ def metrics(bad_flags):
             "precision": tp / (tp + fp) if tp + fp else None, "recall": tp / (tp + fn) if tp + fn else None}
 
 
+def failed_checks(verdict, fraud):
+    """Evidence that says something is wrong with the invoice: failed hard checks and medium or high fraud signals.
+    Low signals (a new payee, say) are context, not a finding, so they are not counted as evidence against it."""
+    low = {"fraud_signal:" + s["signal"] for s in (fraud or {}).get("signals", []) if s.get("severity") == "low"}
+    return [e["check"] for e in verdict["evidence"] if not e["passed"] and e["check"] not in low]
+
+
+def metrics_dict(m):
+    return dict(m)
+
+
 def metrics_markdown(label, m):
     pct = lambda x: "n/a" if x is None else f"{x * 100:.1f}%"
     return ("| Run | Precision | Recall | False positives (clean held) | False negatives (bad approved) |\n"
@@ -121,6 +132,7 @@ def main():
     ap.add_argument("--stub-ai", action="store_true", help="replace the AI with a hostile stub")
     ap.add_argument("--sleep", type=float, default=5.0, help="seconds between real-AI invoices")
     ap.add_argument("--out", help="save one row per invoice to this CSV")
+    ap.add_argument("--json", help="save every metric (accuracy, evidence correctness, calibration) to this JSON file")
     args = ap.parse_args()
 
     db_name = DATABASE_URL.rsplit("/", 1)[-1].split("?")[0]
@@ -138,7 +150,9 @@ def main():
     rows = load_rows(split)
     with get_conn() as conn:
         conn.execute("UPDATE invoices SET status = 'received'")
-        conn.execute("DELETE FROM audit_log")
+        from backend.audit_chain import allow_reset
+        with allow_reset(conn):
+            conn.execute("DELETE FROM audit_log")
         conn.commit()
         order = {n: i for i, (n,) in enumerate(conn.execute(
             "SELECT invoice_number FROM invoices ORDER BY received_at").fetchall())}
@@ -151,7 +165,9 @@ def main():
         out = investigate(ids[row["invoice_number"]])
         v = out["verdict"]
         results.append({**row, "is_bad": int(row["is_bad"]), "decision": v["decision"],
-                        "status": out["status"], "reasons": v["reasons"]})
+                        "status": out["status"], "reasons": v["reasons"], "confidence": v.get("confidence"),
+                        "agent_decision": out.get("agent_decision"),
+                        "failed_checks": failed_checks(v, out.get("fraud"))})
         print(f"  {i:2}/{len(rows)} {row['eval_id']} {row['scenario']:19} -> {v['decision']}", flush=True)
         if not args.stub_ai:
             time.sleep(args.sleep)  # free-tier rate limit
@@ -166,6 +182,12 @@ def main():
     print(f"(exact expected decision:          {s['exact']} / {s['total']})")
     m = metrics([(bool(r["is_bad"]), r["decision"] != "approve") for r in results])
     print("\n" + metrics_markdown(f"{split} split, {mode}, {s['total']} synthetic invoices", m))
+    from backend import evalmetrics
+    print("\n" + evalmetrics.markdown(results, f"{split} split, {mode}"))
+    if args.json:
+        Path(args.json).write_text(json.dumps({"split": split, "mode": mode, "summary": s, "metrics": metrics_dict(m),
+                                               **evalmetrics.all_metrics(results)}, indent=2, default=str), encoding="utf-8")
+        print(f"\nMetrics saved to {args.json}")
     if s["ai_errors"]:
         print(f"WARNING: {s['ai_errors']} invoice(s) hit investigator_failed (AI error). Those count as "
               "held, which flatters 'frauds caught' and hurts 'wrongly held'.")
@@ -196,10 +218,12 @@ def main():
     if args.out:
         with open(args.out, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["eval_id", "scenario", "is_bad", "expected", "decision", "status", "reasons"])
+            w.writerow(["eval_id", "scenario", "is_bad", "expected", "decision", "status", "reasons",
+                        "confidence", "agent_decision", "failed_checks"])
             for r in results:
                 w.writerow([r["eval_id"], r["scenario"], r["is_bad"], r["expected"], r["decision"],
-                            r["status"], "; ".join(r["reasons"])])
+                            r["status"], "; ".join(r["reasons"]), r["confidence"], r["agent_decision"],
+                            "; ".join(r["failed_checks"])])
     if args.holdout:
         write_holdout_lock(HOLDOUT_LOCK, mode)
         print(f"\nHold-out used. Lock written to {HOLDOUT_LOCK}.")

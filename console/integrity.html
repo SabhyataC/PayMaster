@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="layout.css">
+    <title>PayMaster: Audit integrity</title>
+    <style>
+        :root { --bg: #f7f6f2; --line: #e4e2da; --ink: #1d1d1b; --muted: #6b6a63; --ok: #0b6b4f; --bad: #b3261e; --blue: #1f4e8c; }
+        * { box-sizing: border-box; }
+        h1 { font-size: 20px; margin: 4px 0 2px; } .sub { color: var(--muted); margin: 0 0 14px; }
+        .hero { display: grid; grid-template-columns: 150px 1fr; gap: 20px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 20px; border-left: 6px solid var(--muted); }
+        .hero.ok { border-left-color: var(--ok); background: linear-gradient(120deg, #f2faf6, #fff 60%); } .hero.bad { border-left-color: var(--bad); background: linear-gradient(120deg, #fdf1ef, #fff 60%); }
+        .hero h2 { margin: 0 0 4px; font-size: 22px; } .hero p { margin: 0; color: #4a4a45; }
+        .shield { width: 130px; height: 150px; }
+        .shield .body { fill: #eeede8; stroke: #c9c7bd; stroke-width: 3; transition: all .5s; } .ok .shield .body { fill: #0b6b4f; stroke: #07503b; } .bad .shield .body { fill: #b3261e; stroke: #8a1d17; }
+        .shield .mark { fill: none; stroke: #fff; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 90; stroke-dashoffset: 90; } .ok .shield .mark, .bad .shield .mark { animation: draw .7s .2s forwards; } @keyframes draw { to { stroke-dashoffset: 0; } }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; } @media (max-width: 700px) { .stats, .hero { grid-template-columns: 1fr; } }
+        .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; } .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); } .card .n { font-size: 26px; font-weight: 700; } .card .h { font-size: 12px; color: var(--muted); }
+        .chain { display: flex; gap: 0; align-items: center; margin: 4px 0 2px; overflow: hidden; } .chain i { flex: none; width: 26px; height: 16px; border: 3px solid var(--ok); border-radius: 6px; margin-right: -6px; background: #fff; } .bad .chain i.x { border-color: var(--bad); transform: translateY(5px) rotate(14deg); }
+        code { display: block; word-break: break-all; background: #0e1726; color: #7fd1b9; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; }
+        button { padding: 8px 14px; border: 0; border-radius: 8px; background: var(--ok); color: #fff; font: inherit; font-weight: 600; cursor: pointer; } button.ghost { background: #fff; color: var(--ink); border: 1px solid #cfcdc4; }
+        .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; } .box { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-top: 14px; } .box h3 { margin: 0 0 6px; font-size: 14px; }
+        @media (prefers-reduced-motion: reduce) { .shield .mark { animation: none !important; stroke-dashoffset: 0; } }
+    
+        body { margin: 0; background: #f4f5f2; color: #1c1b18; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        main { max-width: 1100px; margin: 0; padding: 22px 28px; min-width: 0; }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <div id="sidebar"></div>
+        <main>
+        <h1>Audit integrity</h1>
+        <p class="sub">Every decision and payment is written to a log that cannot be edited or deleted, and each entry is cryptographically linked to the one before it.</p>
+        <div class="hero" id="hero"><svg class="shield" viewBox="0 0 130 150" aria-hidden="true"><path class="body" d="M65 6 L120 26 V74 C120 108 96 132 65 144 C34 132 10 108 10 74 V26 Z"/><path class="mark" id="mark" d="M40 76 L58 94 L92 54"/></svg>
+            <div><h2 id="h">Checking the chain&hellip;</h2><p id="p">Recomputing every link.</p><div class="chain" id="chain"></div></div></div>
+        <div class="stats" id="stats"></div>
+        <div class="box"><h3>Head hash</h3><p class="sub" style="margin:0 0 8px">A fingerprint of the whole log up to now. Keep a copy somewhere outside the database; if it ever differs for the same position, the log was rewritten.</p><code id="head">&ndash;</code>
+            <div class="row"><button type="button" id="again">Verify now</button><button type="button" class="ghost" id="copy">Copy head hash</button><button type="button" class="ghost" id="proof">Download proof (JSON)</button></div></div>
+        <div class="box"><h3>How it works</h3><p class="sub" style="margin:0">Database rules refuse any change or deletion of an audit row. A background process chains the rows with SHA-256 within seconds of being written. Verifying recomputes the full chain and also checks that nothing was removed from its end.</p></div>
+    </main>
+    </div>
+    <script src="layout.js"></script>
+    <script src="pm.js"></script>
+    <script src="ui.js"></script>
+    <script>
+        const API = "http://localhost:8000";
+        const $ = id => document.getElementById(id);
+        function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined && text !== null) e.textContent = text; return e; }
+        let last = null;
+        function card(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", n)); c.appendChild(el("div", "h", h)); return c; }
+        async function verify() {
+            $("again").disabled = true;
+            try {
+                const r = await fetch(`${API}/audit/chain/verify`); if (!r.ok) { $("h").textContent = `Could not verify (error ${r.status})`; return; }
+                const d = last = await r.json(), hero = $("hero");
+                hero.className = "hero " + (d.ok ? "ok" : "bad");
+                $("h").textContent = d.ok ? (d.checked ? "The audit log is intact" : "Nothing recorded yet") : "The audit log has been tampered with";
+                $("p").textContent = d.ok ? `${d.checked} entries are chained and every link checks out.` : `Entry #${d.broken_at}: ${d.reason}.`;
+                const ch = $("chain"); ch.textContent = ""; const n = Math.min(d.checked || 0, 22);
+                for (let i = 0; i < n; i++) { const k = el("i"); if (!d.ok && d.broken_at && i + 1 >= Math.min(d.broken_at, n)) k.className = "x"; ch.appendChild(k); }
+                const s = $("stats"); s.textContent = "";
+                s.appendChild(card("Entries chained", String(d.checked), d.chain_started ? "since " + new Date(d.chain_started).toLocaleDateString() : "none yet"));
+                s.appendChild(card("Waiting to be chained", String(d.waiting_to_be_sealed), "new entries are chained within seconds"));
+                s.appendChild(card("Result", d.ok ? "Valid" : "Broken", d.ok ? "no edits, deletions or reordering" : "see the message above"));
+                $("head").textContent = d.head || "–";
+            } catch (e) { $("h").textContent = "Cannot reach the API"; }
+            $("again").disabled = false;
+        }
+        $("again").onclick = verify;
+        $("copy").onclick = async () => { try { await navigator.clipboard.writeText(last && last.head || ""); PM.toast("Head hash copied", "ok"); } catch (e) { PM.toast("Could not copy", "error"); } };
+        $("proof").onclick = () => { if (!last) return; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify({ verified_at: new Date().toISOString(), ...last }, null, 2)], { type: "application/json" })); a.download = "audit-integrity-proof.json"; a.click(); };
+        verify();
+    </script>
+</body>
+
+</html>

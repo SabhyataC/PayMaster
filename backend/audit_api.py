@@ -10,6 +10,14 @@ from backend.auth import current_member
 router = APIRouter(prefix="/audit", tags=["audit"])
 
 
+@router.get("/chain/verify")
+def verify_chain(user: dict = Depends(current_member)):
+    """Seal anything not chained yet, then recompute this company's whole audit chain and compare."""
+    from backend.audit_chain import verify
+    with get_conn() as conn:
+        return verify(conn, user["company_id"])
+
+
 @router.get("/{invoice_id}")
 def audit_timeline(invoice_id: str, user: dict = Depends(current_member)):
     """invoice_id can be the invoice UUID or the invoice number (INV-2001)."""

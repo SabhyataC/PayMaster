@@ -25,7 +25,9 @@ with get_conn() as conn:
     ids = [r[0] for r in conn.execute("SELECT id FROM invoices WHERE invoice_number LIKE 'SYN-%'").fetchall()]
     if ids:
         conn.execute("DELETE FROM reviews WHERE invoice_id = ANY(%s)", (ids,))
-        conn.execute("DELETE FROM audit_log WHERE entity_id = ANY(%s)", (ids,))
+        from backend.audit_chain import allow_reset
+        with allow_reset(conn):
+            conn.execute("DELETE FROM audit_log WHERE entity_id = ANY(%s)", (ids,))
         conn.execute("DELETE FROM invoices WHERE id = ANY(%s)", (ids,))
 
     for like, number, signals, decision, final, confirmed, note in CASES:
