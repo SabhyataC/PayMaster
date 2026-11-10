@@ -30,7 +30,7 @@ class MemberEdit(BaseModel):
 
 class SettingsIn(BaseModel):
     auto_pay_limit: str | None = None
-    four_eyes: bool | None = None      # True = uploader may not release their own invoice (default)
+
 
 
 def _member_row(r):
@@ -139,9 +139,9 @@ def make_reset_token(member_id: str, user: dict = Depends(admin_only)):
 @router.get("/settings")
 def get_settings(user: dict = Depends(admin_only)):
     with get_conn() as conn:
-        limit, fe = conn.execute("SELECT auto_pay_limit, require_four_eyes FROM companies WHERE id = %s",
-                                 (user["company_id"],)).fetchone()
-    return {"auto_pay_limit": None if limit is None else str(limit), "four_eyes": fe}
+        limit = conn.execute("SELECT auto_pay_limit FROM companies WHERE id = %s",
+                             (user["company_id"],)).fetchone()[0]
+    return {"auto_pay_limit": None if limit is None else str(limit)}
 
 
 @router.post("/settings")
@@ -165,13 +165,6 @@ def set_settings(body: SettingsIn, user: dict = Depends(admin_only)):
                          reason=f"{user['full_name']} set the auto-pay limit to {value if value is not None else 'default'}",
                          inputs={"by": user["id"], "auto_pay_limit": None if value is None else str(value)},
                          actor="human")
-        if body.four_eyes is not None:
-            conn.execute("UPDATE companies SET require_four_eyes = %s WHERE id = %s",
-                         (body.four_eyes, user["company_id"]))
-            log_decision(conn, stage="admin", entity_type="company", entity_id=user["company_id"],
-                         decision="settings_changed",
-                         reason=f"{user['full_name']} turned the four-eyes rule {'ON' if body.four_eyes else 'OFF'}",
-                         inputs={"by": user["id"], "four_eyes": body.four_eyes}, actor="human")
-        limit, fe = conn.execute("SELECT auto_pay_limit, require_four_eyes FROM companies WHERE id = %s",
-                                 (user["company_id"],)).fetchone()
-    return {"auto_pay_limit": None if limit is None else str(limit), "four_eyes": fe}
+        limit = conn.execute("SELECT auto_pay_limit FROM companies WHERE id = %s",
+                             (user["company_id"],)).fetchone()[0]
+    return {"auto_pay_limit": None if limit is None else str(limit)}

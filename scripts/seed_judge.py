@@ -29,14 +29,16 @@ JUDGE_EMAIL = os.environ.get("JUDGE_EMAIL", "judge@paymaster-demo.example.com")
 OWNER_EMAIL = os.environ.get("OWNER_EMAIL", "owner@paymaster-demo.example.com")
 
 # name, country, payout email, PO amount
+# name, country, payout email, PO amount
+# The payout emails are real PayPal sandbox Personal accounts, so approved payouts reach SUCCESS.
+# (spare, unused here: paymaster-vendor-gm2@example.com, US)
 VENDORS = [
-    ("Northwind Stationers", "US", "ap@northwind-demo.example.com", "1200.00"),
-    ("Kestrel Logistics", "GB", "ap@kestrel-demo.example.com", "2400.00"),
-    ("Bluefin Packaging", "US", "ap@bluefin-demo.example.com", "860.00"),
-    ("Orchard Cloud Services", "US", "ap@orchard-demo.example.com", "950.00"),
-    ("Summit IT Support", "US", "ap@summit-demo.example.com", "9000.00"),
+    ("Northwind Stationers", "US", "paymaster-vendor-us@example.com", "1200.00"),
+    ("Kestrel Logistics", "GB", "paymaster-vendor-uk@example.com", "2400.00"),
+    ("Bluefin Packaging", "IN", "paymaster-vendor-in@example.com", "860.00"),
+    ("Orchard Cloud Services", "DE", "paymaster-vendor-gm@example.com", "950.00"),
+    ("Summit IT Support", "US", "paymaster-vendor-us2@example.com", "9000.00"),
 ]
-
 
 def main():
     ap = argparse.ArgumentParser()

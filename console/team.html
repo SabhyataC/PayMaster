@@ -228,16 +228,7 @@
                 </div>
                 <div class="msg" id="lmsg"></div>
             </div>
-            <div class="card">
-                <h2>Four-eyes rule</h2>
-                <p class="sub">When on, the person who uploaded an invoice cannot approve or release it; another admin
-                    or reviewer must. Turn it off only for a one-person or demo company.</p>
-                <div class="row">
-                    <div><label><input type="checkbox" id="foureyes"> Require a second person to release</label></div>
-                    <div><button id="savefe">Save</button></div>
-                </div>
-                <div class="msg" id="fmsg"></div>
-            </div>
+
             <div class="card">
                 <h2>Alerts by email and WhatsApp</h2>
                 <p class="sub">Get a message when something needs a person. Messages never contain bank details, only
@@ -346,13 +337,6 @@
             $("lmsg").textContent = r.ok ? "Saved." : detail(r.data);
         };
 
-        $("savefe").onclick = async () => {
-            const r = await call("/admin/settings", "POST", { four_eyes: $("foureyes").checked });
-            $("fmsg").className = "msg " + (r.ok ? "ok" : "err");
-            $("fmsg").textContent = r.ok ? "Saved." : detail(r.data);
-        };
-
-
         // ---- Alerts ----
         const lines = t => t.split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);
         function showAlerts(d) {
@@ -399,7 +383,6 @@
             loadAlerts();
             const s = await call("/admin/settings");
             if (s.ok && s.data.auto_pay_limit) $("limit").value = s.data.auto_pay_limit;
-            if (s.ok) $("foureyes").checked = s.data.four_eyes !== false;
         })();
     </script>
 </body>

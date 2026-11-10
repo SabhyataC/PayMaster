@@ -692,16 +692,17 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments (entity_type, entity_id);
 
 -- Four-eyes rule: ON by default. A company may switch it off (admin, audited), e.g. a one-person demo.
-ALTER TABLE companies ADD COLUMN IF NOT EXISTS require_four_eyes BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE companies
+ADD COLUMN IF NOT EXISTS require_four_eyes BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Alerts by email and WhatsApp. Events are written to the outbox in the SAME transaction as the thing they
 -- announce (so a rolled-back change never sends anything), and a worker sends them afterwards.
 CREATE TABLE IF NOT EXISTS notification_settings (
     company_id UUID PRIMARY KEY REFERENCES companies (id),
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
-    email_to TEXT[] NOT NULL DEFAULT '{}',
-    whatsapp_to TEXT[] NOT NULL DEFAULT '{}',
-    events TEXT[] NOT NULL DEFAULT '{invoice_held,payment_problem,document_needs_fix}',
+    email_to TEXT [] NOT NULL DEFAULT '{}',
+    whatsapp_to TEXT [] NOT NULL DEFAULT '{}',
+    events TEXT [] NOT NULL DEFAULT '{invoice_held,payment_problem,document_needs_fix}',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -712,24 +713,37 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     subject TEXT NOT NULL,
     body TEXT NOT NULL,
     dedupe_key TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (
+        status IN (
+            'pending',
+            'sent',
+            'failed',
+            'skipped'
+        )
+    ),
     attempts INT NOT NULL DEFAULT 0,
     last_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     done_at TIMESTAMPTZ,
     UNIQUE (company_id, dedupe_key)
 );
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox (status, id) WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON notification_outbox (status, id)
+WHERE
+    status = 'pending';
 
 CREATE TABLE IF NOT EXISTS notification_log (
     id BIGSERIAL PRIMARY KEY,
     outbox_id BIGINT NOT NULL REFERENCES notification_outbox (id),
-    channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+    channel TEXT NOT NULL CHECK (
+        channel IN ('email', 'whatsapp')
+    ),
     recipient TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
     error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
 CREATE INDEX IF NOT EXISTS idx_notiflog_outbox ON notification_log (outbox_id);
 
 -- ===== Tamper-evident audit log =====
@@ -738,10 +752,18 @@ CREATE INDEX IF NOT EXISTS idx_notiflog_outbox ON notification_log (outbox_id);
 --    reordering is detected by audit_verify(). Writers never wait for each other: sealing is separate.
 -- 3) For full protection also run the app as a role without ownership: see docs/audit-integrity.md.
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS seal_seq BIGINT;
+
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS prev_hash TEXT;
+
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS row_hash TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS audit_chain_pos ON audit_log (company_id, seal_seq) WHERE seal_seq IS NOT NULL;
-CREATE INDEX IF NOT EXISTS audit_unsealed ON audit_log (id) WHERE seal_seq IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS audit_chain_pos ON audit_log (company_id, seal_seq)
+WHERE
+    seal_seq IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS audit_unsealed ON audit_log (id)
+WHERE
+    seal_seq IS NULL;
 
 CREATE TABLE IF NOT EXISTS audit_heads (
     company_id UUID PRIMARY KEY REFERENCES companies (id),
@@ -773,8 +795,11 @@ BEGIN
 END $$;
 
 DROP TRIGGER IF EXISTS audit_no_change ON audit_log;
+
 CREATE TRIGGER audit_no_change BEFORE UPDATE OR DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION audit_guard();
+
 DROP TRIGGER IF EXISTS audit_no_truncate ON audit_log;
+
 CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit_log FOR EACH STATEMENT EXECUTE FUNCTION audit_guard_truncate();
 
 -- Chain every committed, unsealed row (oldest first, per company). Only rows older than every transaction that
@@ -840,7 +865,6 @@ BEGIN
     SELECT count(*) INTO unsealed FROM audit_log al2 WHERE al2.company_id = cid AND al2.seal_seq IS NULL;
 END $$;
 
-
 -- ===== The ledger is append-only =====
 -- A correction is a new, opposite entry (entry_type 'reversal_*'), never an edit or a delete.
 CREATE OR REPLACE FUNCTION ledger_guard() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -850,6 +874,12 @@ BEGIN
 END $$;
 
 DROP TRIGGER IF EXISTS ledger_no_change ON ledger_entries;
+
 CREATE TRIGGER ledger_no_change BEFORE UPDATE OR DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ledger_guard();
+
 DROP TRIGGER IF EXISTS ledger_no_truncate ON ledger_entries;
+
 CREATE TRIGGER ledger_no_truncate BEFORE TRUNCATE ON ledger_entries FOR EACH STATEMENT EXECUTE FUNCTION ledger_guard();
+
+-- The four-eyes rule was removed: the uploader of an invoice may approve and release it.
+ALTER TABLE companies DROP COLUMN IF EXISTS require_four_eyes;

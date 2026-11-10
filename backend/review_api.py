@@ -6,13 +6,12 @@ from pydantic import BaseModel
 from backend.auth import current_member, reviewer_or_admin
 from backend.db import get_conn
 from backend.pay import pay_invoice
-from backend.policy import check_policy
-from backend.review import ReviewError, assert_not_own_upload, decide, get_case, list_queue
+from backend.review import ReviewError, decide, get_case, list_queue
 
 router = APIRouter(prefix="/review", tags=["review"])
 
 STATUS_FOR = {"not_found": 404, "already_decided": 409, "not_allowed": 409, "hard_reject": 409,
-              "self_approval": 403, "payment_started": 409}
+              "payment_started": 409}    
 
 
 class Decision(BaseModel):
@@ -54,8 +53,7 @@ def decision(invoice_id: str, body: Decision, user: dict = Depends(reviewer_or_a
     try:
         with get_conn() as conn:
             _own(conn, invoice_id, user["company_id"])
-            return decide(conn, invoice_id, body.decision, user["full_name"], body.note, body.confirmed_with_vendor,
-                          reviewer_id=user["id"])
+            return decide(conn, invoice_id, body.decision, user["full_name"], body.note, body.confirmed_with_vendor)
     except ReviewError as e:
         _fail(e)
 
@@ -66,10 +64,5 @@ def release_payment(invoice_id: str, body: PayIn | None = None,
     confirm = bool(body and body.confirm_missing_delivery)
     with get_conn() as conn:
         _own(conn, invoice_id, user["company_id"])
-        if check_policy(conn, invoice_id)["outcome"] == "hold":
-            try:
-                assert_not_own_upload(conn, invoice_id, user["id"])
-            except ReviewError as e:
-                _fail(e)
         return pay_invoice(conn, invoice_id, approved_by=user["full_name"],
                            confirm_missing_delivery=confirm)

@@ -25,20 +25,6 @@ class ReviewError(Exception):
         self.code, self.message = code, message
 
 
-def assert_not_own_upload(conn, invoice_id, user_id):
-    """Four eyes: the person who uploaded an invoice cannot also approve or release it. This holds
-    even in a one-person company, which must switch the rule off on the Team page (admin only,
-    audited) to approve its own uploads."""
-    if not user_id:
-        return
-    row = conn.execute("SELECT uploaded_by, company_id FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
-    if row is None or row[0] is None or str(row[0]) != str(user_id):
-        return
-    on = conn.execute("SELECT require_four_eyes FROM companies WHERE id = %s", (row[1],)).fetchone()
-    if on is not None and on[0] is False:
-        return
-    raise ReviewError("self_approval", "You uploaded this invoice, so someone else must approve or release it")
-
 
 def _uuid(value):
     try:
@@ -153,7 +139,7 @@ def get_case(conn, invoice_id):
     }
 
 
-def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=False, reviewer_id=None):
+def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=False):
     """Apply a human decision. Raises ReviewError (and changes nothing) when it is not allowed."""
     invoice_id = _uuid(invoice_id)
     reviewer, note = (reviewer or "").strip(), (note or "").strip()
@@ -178,11 +164,6 @@ def decide(conn, invoice_id, decision, reviewer, note, confirmed_with_vendor=Fal
         raise ReviewError("payment_started", "A payment for this invoice already exists; handle it under Exceptions")
 
     if decision == "approve":
-        try:
-            assert_not_own_upload(conn, invoice_id, reviewer_id)
-        except ReviewError:
-            conn.rollback()
-            raise
         # A person may clear a hold (changed bank, amount off, a flagged email) but never override
         # a hard failure that says the invoice must not be paid: duplicate, no PO, other vendor's PO.
         hard = run_hard_checks(invoice_id)
