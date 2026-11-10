@@ -330,7 +330,7 @@
 
         const ICON = { in_sync: "\u2713", attention: "!", empty: "\u2026" };
         const HEAD = { in_sync: "Books and PayPal agree", attention: "Needs attention", empty: "No payments yet" };
-        const EXN = { payment_failed: "Payment failed", unknown_outcome: "Outcome unknown", pending_too_long: "Pending too long", unclaimed_too_long: "Unclaimed too long", created_too_long: "Never sent", success_mismatch: "PayPal says different status", amount_mismatch: "Amount differs", unknown_payout: "Payout we have no record of" };
+        const EXN = { payment_failed: "Payment failed", unknown_outcome: "Outcome unknown", pending_too_long: "Pending too long", unclaimed_too_long: "Unclaimed too long", created_too_long: "Never sent", success_mismatch: "PayPal says different status", amount_mismatch: "Amount differs", unknown_payout: "Payout we have no record of", payment_returned: "Payout returned by PayPal" };
         function card(t, n, h) { const c = el("div", "card"); c.appendChild(el("div", "t", t)); c.appendChild(el("div", "n", n)); c.appendChild(el("div", "h", h)); return c; }
         const V = window.PMViz; V.css();
         const PAYCOL = { success: V.C.good, pending: V.C.amber, submitted: V.C.blue, created: "#8a8a82", unclaimed: V.C.amber, failed: V.C.bad, unknown: V.C.bad, returned: V.C.violet };

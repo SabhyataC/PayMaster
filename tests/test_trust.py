@@ -118,7 +118,12 @@ def test_problems_show_red():
     add_ledger(w, pid, 50, balanced=False)
     c = chain(w, good)
     check("an unbalanced ledger: Ledger link red", states(c)["ledger"] == "problem", c["chain"][7]["summary"])
-    run("DELETE FROM ledger_entries WHERE payment_id = %s", (pid,)); add_ledger(w, pid, 40)
+    run("ALTER TABLE ledger_entries DISABLE TRIGGER USER")
+    try:
+        run("DELETE FROM ledger_entries WHERE payment_id = %s", (pid,))
+    finally:
+        run("ALTER TABLE ledger_entries ENABLE TRIGGER USER")
+    add_ledger(w, pid, 40)
     c = chain(w, good)
     check("the ledger records a different amount than was paid: Ledger link red",
           states(c)["ledger"] == "problem" and "ledger records" in c["chain"][7]["summary"], c["chain"][7]["summary"])

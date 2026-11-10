@@ -14,7 +14,15 @@ ITEM_TO_PAYMENT_STATUS = {
     "FAILED": "failed",
     "BLOCKED": "failed",
     "DENIED": "failed",
+    # The money came back to us. Only counted once PayPal itself says so (we always re-read PayPal, never the webhook body).
+    "RETURNED": "returned",
+    "REFUNDED": "returned",
+    "REVERSED": "returned",
 }
+RETURN_ITEM_STATUSES = ("RETURNED", "REFUNDED", "REVERSED")
+# After a confirmed return the invoice is payable again (a new payment attempt gets a new PayPal request id).
+# Set to "held" if you want a person to look first.
+INVOICE_AFTER_RETURN = "approved"
 
 
 STATUS_RANK = {"created": 0, "unknown": 0, "submitted": 1, "pending": 2, "unclaimed": 3,
@@ -104,6 +112,52 @@ def check_balanced(rows):
     if bad:
         raise ValueError(f"Ledger rows do not balance per currency: {bad}")
 
+def reversal_rows(original_rows):
+    """Mirror image of every ledger line of a payment: same account and amount, opposite side. Nothing is edited."""
+    return [("reversal_" + entry_type, account, "credit" if direction == "debit" else "debit", amount, cur,
+             ("Reversal: " + (desc or entry_type))[:200])
+            for entry_type, account, direction, amount, cur, desc in original_rows]
+
+
+def post_reversal(conn, payment_id, invoice_id, item_status):
+    """PayPal confirmed the payout came back. Called inside sync_payment's transaction, with the payment row locked.
+    - If the payout had been booked, append mirror-image ledger lines (once) so books and PayPal agree again.
+    - If it had never been booked (it was still unclaimed or pending), there is nothing to reverse.
+    - The invoice becomes payable again, and a person is alerted. Returns how many reversal lines were written.
+    Fees: this assumes PayPal returns the whole debit including its fee. If your account keeps the fee on a return,
+    post that fee line by hand; the mirror posting is the conservative one for the books."""
+    company_id = conn.execute("SELECT company_id FROM payments WHERE id = %s", (payment_id,)).fetchone()[0]
+    originals = conn.execute(
+        "SELECT entry_type, account, direction, amount, currency, description FROM ledger_entries "
+        "WHERE payment_id = %s AND entry_type NOT LIKE 'reversal\\_%%' ORDER BY created_at, id", (payment_id,)).fetchall()
+    already = conn.execute("SELECT 1 FROM ledger_entries WHERE payment_id = %s AND entry_type LIKE 'reversal\\_%%' LIMIT 1",
+                           (payment_id,)).fetchone()
+    written = 0
+    if originals and not already:
+        rows = reversal_rows(originals)
+        check_balanced(rows)       # raises before anything is committed: a return never leaves half a reversal
+        for entry_type, account, direction, value, cur, desc in rows:
+            conn.execute(
+                "INSERT INTO ledger_entries (payment_id, entry_type, account, direction, amount, currency, description, company_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (payment_id, entry_type, account, direction, value, cur, desc, company_id))
+            written += 1
+    conn.execute("UPDATE invoices SET status = %s WHERE id = %s AND status IN ('paid', 'approved')",
+                 (INVOICE_AFTER_RETURN, invoice_id))
+    added = conn.execute(
+        """INSERT INTO exceptions (payment_id, type, detail, company_id) VALUES (%s, 'payment_returned', %s::jsonb, %s)
+           ON CONFLICT (payment_id, type) WHERE status = 'open' DO NOTHING""",
+        (payment_id, json.dumps({"invoice_id": str(invoice_id), "paypal_status": item_status, "reversed_lines": written}),
+         company_id)).rowcount
+    if added:
+        try:
+            from backend.notify import emit_payment_problem
+            emit_payment_problem(conn, payment_id, "payment_returned")
+        except Exception:
+            pass
+    return written
+
+
 def sync_payment(conn, batch_id: str) -> dict:
     """
     Bring our payment up to date with what PayPal says about this batch.
@@ -150,7 +204,11 @@ def sync_payment(conn, batch_id: str) -> dict:
         conn.commit()
         return {"result": "unmapped_status", "item_status": item_status}
 
-    if status in FINAL_STATUSES or status == new_status or STATUS_RANK.get(new_status, 0) < STATUS_RANK.get(status, 0):
+    # Final statuses never move, with one exception: a success can later be returned by PayPal.
+    # So a late or out-of-order event (success arriving after returned, pending after success) changes nothing.
+    if (status in ("failed", "returned") or status == new_status
+            or STATUS_RANK.get(new_status, 0) < STATUS_RANK.get(status, 0)
+            or (status == "success" and new_status != "returned")):
         conn.rollback()
         return {"result": "no_change", "payment_status": status}
 
@@ -177,6 +235,10 @@ def sync_payment(conn, batch_id: str) -> dict:
                 emit_payment_problem(conn, payment_id, "payment_failed")
             except Exception:
                 pass
+
+    reversed_rows = 0
+    if new_status == "returned":
+        reversed_rows = post_reversal(conn, payment_id, invoice_id, item_status)
 
     fee = Decimal("0")
     if new_status == "success":
@@ -224,7 +286,8 @@ def sync_payment(conn, batch_id: str) -> dict:
         conn, stage="pay", entity_type="payment", entity_id=payment_id,
         decision=new_status,
         reason=f"PayPal item status '{item_status}', payment moved '{status}' -> '{new_status}'",
-        inputs={"batch_id": batch_id, "item_status": item_status, "fee": str(fee)},
+        inputs={"batch_id": batch_id, "item_status": item_status, "fee": str(fee),
+                **({"reversal_rows": reversed_rows} if new_status == "returned" else {})},
     )
     conn.commit()
     return {"result": "updated", "payment_status": new_status}

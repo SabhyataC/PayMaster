@@ -2,7 +2,7 @@
 from backend.audit import log_decision
 from backend import paypal_client
 from backend.paypal_client import base_url, get_token
-from backend.settle import fetch_batch, fetch_item, settlement_from_item
+from backend.settle import RETURN_ITEM_STATUSES, fetch_batch, fetch_item, settlement_from_item, sync_payment
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -77,7 +77,7 @@ def detect_paypal_disagreements(conn, company_id=None):
         cur.execute(
             """SELECT p.id, p.invoice_id, p.paypal_item_id, p.amount, p.currency,
                       s.amount_sent, s.currency_sent,
-                      s.amount_received, s.currency_received
+                      s.amount_received, s.currency_received, p.paypal_batch_id
                FROM payments p
                LEFT JOIN settlements s ON s.payment_id = p.id
                WHERE p.status = 'success'
@@ -90,7 +90,7 @@ def detect_paypal_disagreements(conn, company_id=None):
 
     new_counts = {}
     for (pid, invoice_id, item_id, amount, currency,
-         sent, sent_cur, recv, recv_cur) in rows:
+         sent, sent_cur, recv, recv_cur, batch_id) in rows:
         try:
             detail = fetch_item(item_id)
         except Exception as e:
@@ -99,6 +99,17 @@ def detect_paypal_disagreements(conn, company_id=None):
 
         # 1) We say success. Does PayPal agree?
         paypal_status = detail.get("transaction_status")
+        if paypal_status in RETURN_ITEM_STATUSES and batch_id:
+            # The money came back and no webhook told us (or it was lost). Apply the same reversal the webhook would.
+            try:
+                res = sync_payment(conn, batch_id)
+            except Exception as e:
+                print(f"reconcile: could not apply the return of payment {pid}: {e}")
+                conn.rollback()
+                res = {}
+            if res.get("result") == "updated":
+                new_counts["returned_applied"] = new_counts.get("returned_applied", 0) + 1
+                continue
         if paypal_status != "SUCCESS":
             info = {"our_status": "success", "paypal_status": paypal_status,
                     "paypal_item_id": item_id, "invoice_id": str(invoice_id)}
@@ -226,7 +237,7 @@ def detect_unknown_payouts(conn):
     return new_counts
 
 
-INVOICE_AFTER_RETURN = "approved"  # payable again; change to "held" for human review
+from backend.settle import INVOICE_AFTER_RETURN  # payable again; change it in settle.py to "held" for human review
 
 def cancel_item(item_id):
     """Ask PayPal to cancel an unclaimed payout item (only works once the batch is SUCCESS)."""
@@ -302,6 +313,20 @@ def handle_unclaimed(conn, company_id=None):
         except Exception as e:
             print(f"reconcile: could not handle unclaimed payment {pid}: {e}")
     return counts
+
+def close_returned(conn, company_id=None):
+    """A returned payout stays an open exception until a later payment attempt exists for the invoice."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """UPDATE exceptions e SET status = 'resolved', resolved_by = 'reconcile',
+                      resolved_at = now(), note = 'The invoice was paid again'
+               WHERE e.type = 'payment_returned' AND e.status = 'open'
+                 AND (%s::uuid IS NULL OR e.company_id = %s::uuid)
+                 AND EXISTS (SELECT 1 FROM payments p JOIN payments q ON q.invoice_id = p.invoice_id
+                             WHERE p.id = e.payment_id AND q.attempt > p.attempt)""",
+            (company_id, company_id))
+        return {"returned_closed": cur.rowcount} if cur.rowcount else {}
+
 
 def detect_failed(conn, company_id=None):
     """Failed payments nobody has retried: a person must look at why PayPal refused them.
@@ -395,7 +420,7 @@ def run_reconcile(conn, commit=True, company_id=None):
     if any(rec.values()):
         conn.commit()   # a recovered payment is saved before the rest of the checks run
     steps = [{f"recovery_{k}": v for k, v in rec.items() if v}, detect_stuck(conn, company_id), detect_failed(conn, company_id),
-             detect_paypal_disagreements(conn, company_id)]
+             detect_paypal_disagreements(conn, company_id), close_returned(conn, company_id)]
     if company_id is None:
         steps.append(detect_unknown_payouts(conn))
     steps.append(handle_unclaimed(conn, company_id))

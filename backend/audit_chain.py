@@ -46,12 +46,14 @@ def allow_reset(conn):
     normal runtime role cannot do it. Refuses unless the database name says it is a throw-away one,
     or the caller passes force after its own safety check (the seed script does)."""
     conn.execute("ALTER TABLE audit_log DISABLE TRIGGER USER")
+    conn.execute("ALTER TABLE ledger_entries DISABLE TRIGGER USER")
     try:
         yield
         conn.execute("DELETE FROM audit_heads")
         conn.execute("UPDATE audit_log SET seal_seq = NULL, prev_hash = NULL, row_hash = NULL")   # re-chain what is left
     finally:
         conn.execute("ALTER TABLE audit_log ENABLE TRIGGER USER")
+        conn.execute("ALTER TABLE ledger_entries ENABLE TRIGGER USER")
 
 
 def reset_guard():

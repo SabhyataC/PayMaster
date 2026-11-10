@@ -839,3 +839,17 @@ BEGIN
     head := v_prev;
     SELECT count(*) INTO unsealed FROM audit_log al2 WHERE al2.company_id = cid AND al2.seal_seq IS NULL;
 END $$;
+
+
+-- ===== The ledger is append-only =====
+-- A correction is a new, opposite entry (entry_type 'reversal_*'), never an edit or a delete.
+CREATE OR REPLACE FUNCTION ledger_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'ledger_entries is append-only: post a reversal entry instead of changing or deleting one'
+        USING ERRCODE = 'insufficient_privilege';
+END $$;
+
+DROP TRIGGER IF EXISTS ledger_no_change ON ledger_entries;
+CREATE TRIGGER ledger_no_change BEFORE UPDATE OR DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ledger_guard();
+DROP TRIGGER IF EXISTS ledger_no_truncate ON ledger_entries;
+CREATE TRIGGER ledger_no_truncate BEFORE TRUNCATE ON ledger_entries FOR EACH STATEMENT EXECUTE FUNCTION ledger_guard();
