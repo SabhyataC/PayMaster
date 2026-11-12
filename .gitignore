@@ -36,3 +36,5 @@ __pycache__/
 demo_invoice/                                
 
 demoinv.txt 
+fix_judge.py
+peek.py

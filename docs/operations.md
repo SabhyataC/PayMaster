@@ -244,7 +244,7 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 
 ## Safety rules for payments
 
-- The person who uploaded an invoice can never approve it or release its payment, even in a one-person company.
+- A held invoice is released only by a named person with a written reason (at least 10 characters). Four-eyes separation (uploader cannot approve) was removed so a one-person demo company can complete the whole flow.
 - Payouts always go to the vendor's payout email on file, never to an email printed on an invoice.
 - Changing a vendor's payout email needs a second admin to approve it. If a company has only one admin, the change applies at once and the audit log records a WARNING.
 - The auto-pay limit cannot be set above 50,000.

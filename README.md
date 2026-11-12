@@ -6,7 +6,7 @@
 
 [![Tests](https://img.shields.io/badge/checks-689%20passing-2ea44f?logo=checkmarx&logoColor=white)](#testing-and-evaluation)
 [![Test suites](https://img.shields.io/badge/suites-19-2ea44f)](tests)
-[![Live demo](https://img.shields.io/badge/live%20demo-Render-46E3B7?logo=render&logoColor=white)](https://paymaster-qip6.onrender.com/console/login.html)
+[![Live demo](https://img.shields.io/badge/live%20demo-Render-46E3B7?logo=render&logoColor=white)](https://paymaster.synteron.dev/console/login.html)
 [![License: MIT](https://img.shields.io/github/license/SabhyataC/paymaster)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/SabhyataC/paymaster)](https://github.com/SabhyataC/paymaster/commits/main)
 [![Repo size](https://img.shields.io/github/repo-size/SabhyataC/paymaster)](https://github.com/SabhyataC/paymaster)
@@ -76,8 +76,8 @@ A hostile AI that approves everything still cannot get a bad invoice paid. We te
 
 ## Try it in five minutes
 
-1. Open the **[live console](https://paymaster-qip6.onrender.com/console/login.html)**. The free Render plan sleeps, so the first load can take about a minute.
-2. Sign in with the demo login given in the Devpost submission (a pre-loaded synthetic company with the Reviewer role), or sign up and press **Add demo data** on the Team page.
+1. Open the **[live console](https://paymaster.synteron.dev/console/login.html)**. The free Render plan sleeps, so the first load can take about a minute.
+2. Sign in with the shared demo login from the Devpost submission (a pre-loaded synthetic company), or sign up and press **Add demo data** on the Team page. Want to use your own data? See the **[user guide](docs/user-guide.md)**.
 3. **Review queue**: three invoices are waiting. Open **Trust graph** on the changed-bank-details invoice and see why it was held.
 4. Press **Approve**, type a reason of at least 10 characters. A named person is now on the record.
 5. Open the clean invoice (`NW-1001`) and see the **Trust Graph** end to end: invoice, Verify, fraud scan, person, PayPal payout, webhook, ledger, reconciled.
@@ -116,7 +116,7 @@ flowchart LR
 
 ### 3. Review: a named person, a written reason
 
-Held invoices wait in the review queue. A person can approve or reject with a reason of at least 10 characters. A person can never approve a duplicate, a missing PO or another vendor's PO. Two people cannot decide the same invoice. The uploader cannot approve their own invoice.
+Held invoices wait in the review queue. A person can approve or reject with a reason of at least 10 characters. A person can never approve a duplicate, a missing PO or another vendor's PO. Two people cannot decide the same invoice.
 
 ### 4. Pay: policy, reserve, send, confirm, book
 
@@ -148,7 +148,11 @@ Settlements, ledger totals per currency and PayPal's own view are compared. Disa
 
 For any invoice, a graph of what was checked against what (vendor, PO, delivery, bank history, webhook, ledger), each link marked **Verified fact** or **AI suggestion**, with a live count of proven versus unproven links. A printable investigation report is available for any case.
 
-### 7. Everything else
+### 7. Bring your own data
+
+Create a vendor, a purchase order and a delivery, then upload a PDF, scan or email. Step by step in the **[user guide](docs/user-guide.md)**.
+
+### 8. Everything else
 
 Alerts by email and WhatsApp/SMS, ask-and-advise chat over your own data, cash advice, vendors and POs with deliveries and attachments, change approvals for sensitive edits (a vendor's payout email), exceptions queue, team and settings, document correction flow.
 
@@ -288,7 +292,7 @@ Interactive docs are served by FastAPI at `/docs` on a running server.
 
 - **Tenant isolation in the database.** Every table carries `company_id`, a row pointing at another company's vendor, PO, invoice or payment is refused, and `company_id` can never change. The AI's lookups are fixed to the invoice's company by code.
 - **Roles.** Viewer (read), reviewer (upload, decide, pay), admin (also vendors, POs, people, settings). The server refuses calls the UI hides.
-- **No self-approval.** The uploader can never approve or release their own invoice.
+- **Human in the loop.** A held invoice moves only when a named person gives a written reason; every decision is audit logged.
 - **Payout email on file only.** Money goes to the vendor's stored payout email, never one printed on an invoice. Changing it needs a second admin.
 - **Prompt-injection safe.** Anything inside an invoice, email, vendor name or note is treated as data. 14 injection texts (x3 variants) are tested.
 - **Idempotent, signature-verified payments.** Unique key per invoice and attempt; webhooks verified and de-duplicated.
@@ -372,7 +376,7 @@ Full variable list, PayPal sandbox account setup, webhook tunnelling, alerts and
 
 ## Project docs
 
-[Devpost write-up](docs/devpost.md) · [Demo video script](docs/video-script.md) · [AI results](docs/ai-results.md) · [Fraud signals](docs/fraud-signals.md) · [Audit integrity](docs/audit-integrity.md) · [Reconcile](docs/reconcile.md) · [E2E test report](docs/e2e-test-report.md) · [Sandbox findings](sandbox-findings.md) · [Operations guide](docs/operations.md)
+[User guide: vendors, POs, invoices](docs/user-guide.md) · [Devpost write-up](docs/devpost.md) · [AI results](docs/ai-results.md) · [Fraud signals](docs/fraud-signals.md) · [Audit integrity](docs/audit-integrity.md) · [Reconcile](docs/reconcile.md) · [E2E test report](docs/e2e-test-report.md) · [Sandbox findings](sandbox-findings.md) · [Operations guide](docs/operations.md)
 
 ## License
 
