@@ -1,407 +1,379 @@
-# Paymaster
+<div align="center">
 
-Paymaster is an accounts-payable agent that pays a company's vendor invoices automatically and safely. Think of it as a careful accounts clerk that never forgets to pay and never pays twice. Built for the PayPal AI Hackathon.
+# PayMaster
 
-> **All data is SYNTHETIC and everything runs in the PayPal sandbox (fake money).** No real company, person or bank account is represented.
+### An AI accounts-payable agent that can read invoices, but can never be talked into paying one.
 
-## How it works
+[![Tests](https://img.shields.io/badge/checks-689%20passing-2ea44f?logo=checkmarx&logoColor=white)](#testing-and-evaluation)
+[![Test suites](https://img.shields.io/badge/suites-19-2ea44f)](tests)
+[![Live demo](https://img.shields.io/badge/live%20demo-Render-46E3B7?logo=render&logoColor=white)](https://paymaster-qip6.onrender.com/console/login.html)
+[![License: MIT](https://img.shields.io/github/license/SabhyataC/paymaster)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/SabhyataC/paymaster)](https://github.com/SabhyataC/paymaster/commits/main)
+[![Repo size](https://img.shields.io/github/repo-size/SabhyataC/paymaster)](https://github.com/SabhyataC/paymaster)
+[![Top language](https://img.shields.io/github/languages/top/SabhyataC/paymaster?logo=python&logoColor=white)](https://github.com/SabhyataC/paymaster/search?l=python)
+[![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](backend/webhooks.py)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](db/schema.sql)
+[![PayPal Payouts](https://img.shields.io/badge/PayPal-Payouts%20sandbox-003087?logo=paypal&logoColor=white)](backend/paypal_client.py)
+[![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=googlegemini&logoColor=white)](backend/investigator.py)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
+[![PayPal AI Hackathon 2026](https://img.shields.io/badge/PayPal%20AI%20Hackathon-2026-0070BA)](docs/devpost.md)
 
-Paymaster runs every invoice through four stages. Every decision is written to the audit log with the reason.
+**[Live demo](https://paymaster-qip6.onrender.com/console/login.html)** · **[Architecture](#architecture)** · **[Demo guide](#try-it-in-five-minutes)** · **[Evaluation](#testing-and-evaluation)** · **[Operations guide](docs/operations.md)**
 
-1. **Intake** (`backend/intake.py`): Gemini reads the invoice (PDF, scan or email) into structured fields. Anything below a 0.8 confidence goes to `needs_review` instead of the invoice table.
-2. **Verify**: three layers, and the AI can never be looser than the code.
-   - **Hard checks** (`backend/checks.py`): PO exists and belongs to this vendor, delivery received, amount within 2% of the PO, duplicate invoice, bank details changed.
-   - **Fraud signals** (`backend/fraud.py`): bank changed recently or differs, amount near the auto-pay limit, new payee, sender email domain mismatch, look-alike vendor name, scam wording in the email. Each signal is low, medium or high; a high total risk can never end as approve.
-   - **Investigator agent** (`backend/investigator.py`): a Gemini agent with read-only tools investigates and gives a verdict. Code gates then enforce the rules: only a hard check can reject (the AI can only escalate to hold), and a held invoice can never be moved back to approved by Verify.
-3. **Review** (`backend/review.py`, `backend/review_api.py`): the only way a held invoice becomes approved is a named person with a written reason. A person can never approve a duplicate, a missing PO or another vendor's PO. Two people cannot both decide the same invoice.
-4. **Pay**:
-   - **Policy check** (`backend/policy.py`): amount limit, new payee. The answer is pass, hold (a human must release it) or block.
-   - **Reserve the payment** (`backend/pay.py`, `backend/idempotency.py`): saved before PayPal is contacted, with a unique key per invoice, so a retry never pays twice.
-   - **Send the money** (`backend/paypal_client.py`): PayPal Payouts is called with that key.
-   - **Wait for PayPal's confirmation** (`backend/webhooks.py`): each webhook's signature is verified before it is trusted.
-   - **Update the books** (`backend/settle.py`): the invoice is marked paid and balanced double-entry ledger rows are written for the payment and the fee.
+</div>
 
-## Status
+> **All data is SYNTHETIC and every payment runs in the PayPal sandbox (fake money).** No real company, person or bank account is represented.
 
-- Done: PayPal sandbox, Postgres, synthetic company, Intake, Verify (hard checks, fraud signals, investigator), labeled evaluation, human review flow and API, case memory, Pay stage, webhooks, ledger, audit log, Reconcile (settlements, exceptions, AI explainer), AG Grid console (invoices, review queue, payments and ledger, exceptions, audit timeline, summary cards), chat, cash advice, upload with content checks, vendors and POs with deliveries and attachments, change approvals, team and settings pages.
-- Next: end-to-end test, demo video.
-- Results and limits: see `docs/ai-results.md` and `docs/fraud-signals.md`.
+---
 
-## PayPal sandbox accounts
+## Why this exists
 
-- The **Business** account (REST app `paymaster-us`) is the company. It sends the payouts and must be US-based, because an India-based sender gets `403 PAYOUT_NOT_AVAILABLE`.
-- The **Personal** accounts `paymaster-vendor-us`, `-us2`, `-in`, `-gm` and `-uk` (all `@example.com`) are the vendors. They receive the payouts.
-- PayPal's dashboard calls Personal accounts "buyers" and Business accounts "sellers". That only describes the account type, not the direction of money in Paymaster.
+Small finance teams pay invoices from email. One changed bank detail or one convincing fake invoice and the money is gone. AI tools that read invoices make this worse, because a clever PDF or email can *talk* the model into approving it (prompt injection).
 
-## Setup
+PayMaster is built on one rule: **the AI may suggest, but code and people decide.**
 
-Requirements: Python 3.11+, Docker Desktop, git, a PayPal developer account with sandbox access, and `cloudflared` (or any tunnel) to receive webhooks.
+- The AI reads and investigates. It cannot reject, cannot approve a held invoice, and cannot choose which company's data it sees.
+- **Only a hard check can reject.** The AI can only escalate to "hold for a person".
+- **Only a named person with a written reason can release a hold.**
+- **A retry can never pay twice.** Every payout is saved with an idempotency key before PayPal is contacted.
+- **Every decision is in a tamper-evident audit log**, and the Trust Graph shows, link by link, the evidence behind a payment.
 
-Clone the repo and install the dependencies (PowerShell):
+A hostile AI that approves everything still cannot get a bad invoice paid. We test exactly that (see [Evaluation](#testing-and-evaluation)).
 
-```powershell
-git clone https://github.com/SabhyataC/PayMaster.git
-cd PayMaster
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
+## Highlights
 
-On macOS or Linux, activate with `source .venv/bin/activate` instead.
-
-## Configuration
-
-1. Copy the example file and fill in your own values:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-2. In the PayPal developer dashboard (Sandbox), open the REST app `paymaster-us` and copy its client ID and secret into `.env`. This must be the **US Business** account's app. An India-based sender gets `403 PAYOUT_NOT_AVAILABLE`.
-3. Choose a password in `.env` (`POSTGRES_PASSWORD`, and the same one inside `DATABASE_URL`).
-4. `PAYPAL_WEBHOOK_ID` is filled in later, in the Webhooks step below.
-
-
-`.env` is gitignored. Never commit it.
-
-| Variable | Needed | Meaning |
-| --- | --- | --- |
-| `DATABASE_URL` | yes | Postgres connection string |
-| `JWT_SECRET` | yes | At least 32 random characters. The API refuses to log anyone in without it. Changing it logs everyone out |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | yes | Used by Intake, Verify, the explainer and chat |
-| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_BASE_URL` | yes | PayPal sandbox app |
-| `PAYPAL_WEBHOOK_ID` | for webhooks | With no value every webhook is refused (503) |
-| `PAYPAL_ACCOUNT_EMAIL` | no | Shown read-only in the console |
-| `CONSOLE_ORIGINS` | yes when deployed | Comma-separated exact origins allowed by CORS. `*` is refused. Default is the local console |
-| `SIGNUP_ENABLED` | no | Default `false`: public signup is closed and admins add people on the Team page. Set `true` to allow public signup |
-| `TRUST_PROXY` | no | `true` only behind a proxy you control, so login limits use the real client address |
-| `COOKIE_SAMESITE` | no | `lax` (default), `strict` or `none` (needs https) |
-
-If a real key or secret was ever pasted into a chat, a file or a commit, rotate it at its provider. Rotating cannot be done from code. `.env` is gitignored; no secrets are committed.
-
-## Database
-
-Start Postgres in Docker (host port 5433), then create the tables:
-
-```powershell
-docker compose up -d
-Get-Content db\schema.sql | docker exec -i paymaster-db psql -U paymaster -d paymaster
-```
-
-`db/schema.sql` can be re-run safely.
-
-## Seed the synthetic company
-
-The default database is named `paymaster`, which the seed script refuses unless you allow it on purpose:
-
-```powershell
-$env:ALLOW_SEED = "1"
-python -m backend.seed
-```
-
-This **erases all tables first** and rebuilds the demo company: 10 SYNTHETIC vendors, 8 purchase orders with deliveries, and 10 invoices. Five invoices are clean. Five contain planted problems for the Verify stage to catch: a changed bank email, a duplicate invoice, an invoice with no PO, and a look-alike vendor name.
-
-Five vendors use real sandbox account emails (`paymaster-vendor-*@example.com`), so their payouts reach SUCCESS. The planted-problem vendors use fake emails, because they should never reach PayPal.
-
-## Host it on Render
-
-One web service serves both the API and the console, plus one Postgres database. Both come from `render.yaml`.
-
-1. Push the repo to GitHub. In Render choose **New > Blueprint** and pick the repo. Render builds the `Dockerfile` and creates `paymaster` and `paymaster-db`.
-2. Fill in the secrets Render asks for (everything marked `sync: false` in `render.yaml`): `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `GEMINI_API_KEY`, and optionally `PAYPAL_ACCOUNT_EMAIL`, the `SMTP_*` and `TWILIO_*` values and `CONSOLE_URL` (`https://<service>.onrender.com/console`). `JWT_SECRET` is generated for you. `DATABASE_URL` is wired automatically.
-3. The container applies `db/schema.sql` on every start (safe to repeat), then starts the server on Render's `$PORT`.
-4. Open `https://<service>.onrender.com/console/login.html`. The console talks to the same address it is served from, so no CORS or URL settings are needed.
-5. In the PayPal developer dashboard set the webhook URL to `https://<service>.onrender.com/webhooks/paypal`, copy the new webhook id into `PAYPAL_WEBHOOK_ID`, and redeploy. No tunnel is needed any more.
-6. Judges sign up (`SIGNUP_ENABLED=true` in `render.yaml`), create a company, and press **Add demo data** on the Team page (`ALLOW_DEMO_DATA=1`). Remove both settings on a real deployment.
-
-Notes: the free web plan sleeps after 15 minutes idle and the first request then takes about a minute, so use the Starter plan while judging or open the site a few minutes before. Free Postgres expires after 30 days. If Gemini cannot be reached, invoices are held for a person instead of approved, which is deliberate. Render's free plan has no shell, which is why the demo data is a button and not a script.
-
-## Demo data button (for judges)
-
-Set `ALLOW_DEMO_DATA=1` in the server's environment. Then an admin sees an **Add demo data** card on the Team page. One click adds five synthetic vendors and five invoices to **that admin's own company**: a clean invoice, changed bank details, billed before delivery, a copy of an earlier invoice, and one over the automatic payment limit. Verify then runs on them in the background. It never deletes anything, never touches another company, refuses a second click (409), and is written to the audit log. Without `ALLOW_DEMO_DATA=1` the card is hidden and the endpoint answers 403, so a real deployment cannot be filled with fake invoices by accident.
-
-The clean vendors pay out to the PayPal sandbox accounts, so approving and paying the clean invoice reaches SUCCESS. The over-limit invoice is approved by Verify and held for a person when you press Pay.
-
-## Review held invoices
-
-Start the server (it serves the webhooks and the review API):
-
-```powershell
-uvicorn backend.webhooks:app --port 8000
-```
-
-Every call needs a logged-in member of the company. Deciding and paying need the reviewer or admin role; viewers can only read.
-
-```powershell
-$login = Invoke-RestMethod -Method Post http://localhost:8000/auth/login -ContentType "application/json" -Body (@{email="you@example.com"; password="your password"} | ConvertTo-Json)
-$h = @{ Authorization = "Bearer $($login.token)" }
-# what needs a person
-Invoke-RestMethod http://localhost:8000/review/queue -Headers $h
-# one invoice with its evidence, fraud signals and history
-Invoke-RestMethod http://localhost:8000/review/<invoice_id> -Headers $h
-# approve or reject (a name and a note of at least 10 characters are required)
-Invoke-RestMethod -Method Post http://localhost:8000/review/<invoice_id>/decision -Headers $h -ContentType "application/json" -Body '{"decision":"approve","note":"Called vendor, bank change confirmed","confirmed_with_vendor":true}'
-# send the payment; naming yourself here releases a policy hold such as a new payee
-Invoke-RestMethod -Method Post http://localhost:8000/review/<invoice_id>/pay -Headers $h
-```
-
-The queue has two kinds of item. `verify_hold` means Verify wants a person (decide with `/decision`). `policy_hold` means the invoice is already approved but the pay policy wants a person (release with `/pay`).
-
-## Evaluation (synthetic data)
-
-`scripts/make_test_set.py` builds 56 SYNTHETIC invoices (28 clean, 28 bad) with the correct decision for each in `samples/eval_set.csv`, and sets 10 aside as a hold-out. `scripts/eval.py` runs Verify on them and prints frauds caught, clean invoices wrongly held and bad invoices wrongly approved. Use a **separate database** whose name contains `eval` or `test`: both scripts erase data, and refuse to run on any other name.
-
-```powershell
-docker exec -i paymaster-db createdb -U paymaster paymaster_eval
-$env:DATABASE_URL = "postgresql://paymaster:<password>@localhost:5433/paymaster_eval"
-python -m scripts.make_test_set
-python -m scripts.eval --stub-ai        # code layers only, no Gemini needed
-python -m scripts.eval --sleep 15       # real Gemini (slow on the free tier)
-python -m scripts.eval --holdout        # hold-out set: once, at the very end
-python -m scripts.adversarial_eval --stub-ai   # 60 more unseen invoices (quantity, split billing, duplicate spellings...), code only
-python -m scripts.adversarial_eval --sleep 8 --out adv_real.csv   # same on the REAL model: publish these numbers
-```
-
-Results, what failed along the way and the limits of this test are in `docs/ai-results.md`.
-
-### More than precision and recall
-
-`scripts/eval.py` also prints three further tables (and writes them with `--json metrics.json`; definitions in `backend/evalmetrics.py`, hand-checked in `tests/test_evalmetrics.py`):
-
-- **Investigation accuracy:** share of invoices decided right (bad stopped, clean approved), the exact hold-vs-reject match, the AI alone before the code gates versus the whole pipeline, and how many bad invoices the code gates rescued from the AI.
-- **Evidence correctness:** was the invoice stopped for the RIGHT reason (for a duplicate, `duplicate_invoice`), and were clean invoices shown any false evidence? Low fraud signals such as a new payee are context, not counted.
-- **Confidence calibration:** invoices grouped by the confidence the verdict reported, against how often the decision was right, with expected calibration error, Brier score and the count of wrong decisions made at 90% or more confidence.
-
-Code-only dev run (`--stub-ai`, 46 synthetic invoices): decision accuracy 100%; the stubbed AI alone 54.3% and the code gates rescued 21 bad invoices from it; right reason on 21 of 21 stopped bad invoices; 2 of 25 clean invoices were shown a medium `amount_near_limit` signal (the two near-limit invoices, expected). The stub reports confidence 1.0 for everything, so the calibration table needs the real AI to mean anything. Fill it in from `python -m scripts.eval --sleep 15 --json metrics.json`.
-
-### Results (synthetic, self-written data)
-
-Positive = "this invoice is bad and must not be paid". A false negative is a bad invoice approved (the dangerous kind). A false positive is a clean invoice held for a person to look at (costs time, not money). All invoices are SYNTHETIC and written by the authors, so these numbers show the gates work on cases we thought of. They are not a claim about real-world accuracy.
-
-| Run | Invoices | Precision | Recall | False positives | False negatives |
-|---|---|---|---|---|---|
-| Dev set, code only (`--stub-ai`, AI replaced by a stub that always approves) | 46 | 100.0% | 100.0% | 0 | 0 |
-| Adversarial set, code only (`--stub-ai`, seed 2026) | 60 | 100.0% | 100.0% | 0 | 0 |
-| Dev set, real Gemini | 46 | _fill in from `python -m scripts.eval --sleep 15`_ | | | |
-| Adversarial set, real Gemini | 60 | _fill in from `python -m scripts.adversarial_eval --sleep 8`_ | | | |
-
-The code-only rows are the important ones: they show that even when the AI is wrong or hostile, the hard checks and fraud gates stop every bad invoice in these sets. Each run prints its own row in this format.
-
-
-
-## Fix documents that need review
-
-When Intake is not sure about a document (low confidence, unknown vendor, unknown PO, duplicate number) it is saved as `needs_review` and no invoice is created. A person fixes the fields:
-
-```powershell
-(Invoke-RestMethod -Uri http://localhost:8000/extractions -Headers $h).items
-$body = @{note="Vendor name had a typo, checked against the PO"; corrections=@{vendor_name="Bluefin Packaging"}} | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/extractions/<ID>/correct -Headers $h -ContentType "application/json" -Body $body
-```
-
-- Only `needs_review` extractions can be corrected (anything else returns 409). A reviewer name and a note of at least 10 characters are required.
-- The first AI-extracted values are kept in `original_extracted` and never overwritten. Each correction writes an audit row with original and corrected value per field.
-- The fields the person fixed count as checked, but the code checks still run on the new values (totals must match line items, dates in order, vendor and PO must exist). A wrong correction goes back to `needs_review` with the reason.
-- If it passes, the invoice is created as `received` and Verify runs again on it. Whether it may be paid is still decided by Verify, the review flow and policy, never by the correction.
-
-## Reconcile
-
-Reconcile compares our payment records with PayPal and logs every difference as an **exception**. Payouts younger than 3 hours are ignored, because PayPal's Transaction Search can lag.
-
-Run it (the server is `uvicorn backend.webhooks:app --port 8000`; reviewer or admin role, and it only looks at your own company's payments):
-
-```powershell
-$login = Invoke-RestMethod -Method Post http://localhost:8000/auth/login -ContentType "application/json" -Body (@{email="you@example.com"; password="your password"} | ConvertTo-Json)
-$h = @{ Authorization = "Bearer $($login.token)" }
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/reconcile/run -Headers $h
-```
-
-Running it twice in a row does not create duplicate exceptions. Each run writes an audit row.
-
-Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /exceptions/{id}/explain`, `POST /exceptions/{id}/resolve` (needs `resolved_by` and `note`; writes an audit row and moves no money).
-
-| Exception type | What it means |
+| | |
 |---|---|
-| `unknown_outcome` | We sent a payout but never learned the result (for example a timeout), still unresolved after 30 minutes. |
-| `pending_too_long` | The payout has been submitted or pending for more than 1 hour. |
-| `unclaimed_too_long` | The vendor has not claimed the payout after 7 days. Reconcile cancels it, waits for PayPal to mark it RETURNED, writes reversing ledger rows (old rows are never edited) and makes the invoice payable again. |
-| `success_mismatch` | We recorded the payment as successful but PayPal says otherwise. |
-| `amount_mismatch` | The amount or currency PayPal shows differs from our settlement record. |
-| `unknown_payout` | PayPal shows a payout that we have no payment record for. |
-| `payment_failed` | PayPal refused the payment. A person can retry it. |
-| `created_too_long` | A payment was saved but never sent, still so after 15 minutes. |
+| **Safe by construction** | Hard checks, fraud signals and an investigator agent in three layers. The AI can never be looser than the code. |
+| **Real PayPal money flow** | PayPal Payouts with idempotency keys, signature-verified webhooks, returns and refunds reversed in the ledger. |
+| **Provable books** | Balanced double-entry ledger, append-only by database trigger, with reconcile against PayPal. |
+| **Tamper-evident audit** | Append-only audit log with a SHA-256 hash chain that anyone can re-verify from the console. |
+| **Explainable** | Trust Graph and investigation report show verified facts and AI suggestions separately. |
+| **Multi-tenant and role based** | Per-company data isolation enforced in the database. Roles: admin, reviewer, viewer. |
+| **Hosted and demo ready** | One Docker service on Render serves the API and the console. One button loads demo data. |
 
-**AI explainer.** `POST /exceptions/{id}/explain` returns a plain-English explanation and one suggested action from a fixed list (`wait`, `cancel_unclaimed`, `contact_vendor`, `recheck_with_paypal`, `escalate`; anything else becomes `escalate`). The AI only explains and suggests: it never pays or cancels. If Gemini fails, a fixed template for the exception type is used. Scores and limits are in `docs/ai-results.md`.
+## Screenshots
 
+<table>
+<tr>
+<td width="50%"><b>Overview</b>: what needs a person, money stopped before paying, paid out<br><img src="docs/screenshots/02-invoices.png" alt="Overview dashboard"></td>
+<td width="50%"><b>Review queue</b>: held invoices wait for a named person<br><img src="docs/screenshots/03-review-queue.png" alt="Review queue"></td>
+</tr>
+<tr>
+<td><b>Trust Graph, held invoice</b>: where the evidence chain breaks<br><img src="docs/screenshots/05-trust-graph-held.png" alt="Trust graph of a held invoice"></td>
+<td><b>Trust Graph, paid invoice</b>: every link proven through the ledger<br><img src="docs/screenshots/04-trust-graph-paid.png" alt="Trust graph of a paid invoice"></td>
+</tr>
+<tr>
+<td><b>Payments and ledger</b><br><img src="docs/screenshots/11-payments-ledger.png" alt="Payments and ledger"></td>
+<td><b>Reconciliation</b> against PayPal<br><img src="docs/screenshots/07-reconcile.png" alt="Reconciliation"></td>
+</tr>
+<tr>
+<td><b>Audit integrity</b>: hash chain verification<br><img src="docs/screenshots/08-audit-integrity.png" alt="Audit integrity"></td>
+<td><b>Approval history</b><br><img src="docs/screenshots/06-approvals.png" alt="Approval history"></td>
+</tr>
+</table>
 
-## Security and privacy
+## Try it in five minutes
 
-- Every company's data is separate. Each table carries a required `company_id`, the database refuses a row that points at another company's vendor, purchase order, invoice or payment, and `company_id` can never be changed after a row exists. Every lookup the AI investigator can make is fixed by code to the invoice's own company; the AI cannot choose or change it.
-- Roles: viewer (read), reviewer (upload, decide, release payments, resolve exceptions), admin (also vendors, POs, people, settings). A company always keeps one active admin.
-- Passwords are bcrypt hashed. Logins are limited per email and per address in the database, so a restart does not reset the limit. Logging out, changing a password, a reset or a role change ends every older session. There is no email service, so an admin creates a one-time reset token, shown once and valid for an hour.
-- Uploads are checked by content, not name: real PDF, PNG, JPG or UTF-8 text; at most 10 MB and 20 PDF pages; no scripts, launch actions or embedded files in PDFs; limited per person and per company.
-- The AI only reads. Anything inside an invoice, email, vendor name or reviewer note is treated as data. Code, never the AI, decides what may be paid: only hard checks can reject, only a named person can release a hold, and a hostile AI that approves everything still cannot get a bad invoice paid (`python -m scripts.eval --stub-ai`, `python tests/test_hardening.py`).
-- Privacy: this project is a demo on synthetic data. Documents you upload are sent to Google's Gemini API for reading, and are stored unencrypted in your Postgres database. Do not upload real personal or financial data unless you accept that. It is not certified or audited and makes no claim of compliance with PCI DSS, SOC 2, GDPR or any other standard.
+1. Open the **[live console](https://paymaster-qip6.onrender.com/console/login.html)**. The free Render plan sleeps, so the first load can take about a minute.
+2. Sign in with the demo login given in the Devpost submission (a pre-loaded synthetic company with the Reviewer role), or sign up and press **Add demo data** on the Team page.
+3. **Review queue**: three invoices are waiting. Open **Trust graph** on the changed-bank-details invoice and see why it was held.
+4. Press **Approve**, type a reason of at least 10 characters. A named person is now on the record.
+5. Open the clean invoice (`NW-1001`) and see the **Trust Graph** end to end: invoice, Verify, fraud scan, person, PayPal payout, webhook, ledger, reconciled.
+6. **Payments and ledger** shows the balanced double-entry rows. **Audit integrity** re-verifies the hash chain. **Reconciliation** compares our books with PayPal.
+7. The over-limit invoice (`SM-777`) was approved by Verify but **Pay** holds it by policy until a person releases it.
 
-## Safety rules for payments
+Judges: everything above is synthetic and runs in the PayPal sandbox.
 
-- The person who uploaded an invoice can never approve it or release its payment, even in a one-person company.
-- Payouts always go to the vendor's payout email on file, never to an email printed on an invoice.
-- Changing a vendor's payout email needs a second admin to approve it. If a company has only one admin, the change applies at once and the audit log records a WARNING.
-- The auto-pay limit cannot be set above 50,000.
-- A payment PayPal refuses opens a `payment_failed` exception and can be retried by a person. A payment saved but never sent opens a `created_too_long` exception.
+## Features
 
-## Known limitations (demo)
+### 1. Intake: Gemini reads the document
 
-- One shared PayPal sandbox account sends every company's payouts. A real product would give each company its own funding account.
-- Signup does not verify email addresses. This is why signup is off by default.
-- New vendors, POs, deliveries and auto-pay limit changes need only one admin.
+PDFs, scans and emails become structured fields. Anything below 0.8 confidence goes to *needs review* and never reaches the invoice table. Uploads are validated by content (real PDF/PNG/JPG/text, size and page limits, no scripts or embedded files).
 
-## Limits
+### 2. Verify: three layers, the AI can never be looser than the code
 
-- Currencies: USD, GBP and EUR only. Amounts above the company's automatic payment limit (default 5000.00, set on the Team page) are always held for a person.
-- Quantity: checked only when the PO and the invoice both state a quantity (the invoice quantity is the sum of its lines, and is used only if every line has one). It may not exceed what was received (or ordered, if no received quantity is recorded) minus what earlier invoices on the same PO already billed. If either side has no quantity the check says "not checked" and the amount checks still apply.
-- The 2% amount tolerance and the 0.8 confidence threshold are tunable defaults.
-- Tax is not stored, only the invoice total. Invoices are read in English only.
-- Seeding: `python -m backend.seed` erases every table. It refuses unless the database name contains `dev`, `demo`, `test` or `eval`, or you set `ALLOW_SEED=1` on purpose.
-- Extraction quality depends on the AI model; see `docs/ai-results.md`. If the AI is unavailable the invoice is held, never approved.
-
-## Alerts by email and WhatsApp
-
-An admin opens **Team > Alerts**, adds up to 5 email addresses and 5 WhatsApp numbers, picks which events to hear about (invoice on hold, payment problem, document could not be read, payment confirmed) and clicks **Send a test message**.
-
-- Alerts are written to an outbox in the same transaction as the event, so a change that is rolled back never sends anything. A background worker sends them, retries a failed send up to 3 times and records every attempt in the table on the Alerts card.
-- Messages contain only our own wording, the invoice number, the vendor name (cleaned), the amount and a short reason. They never contain bank details or text from an invoice.
-- A failing email or WhatsApp provider can never block Verify or a payment.
-- Server settings live in `.env` (see `.env.example`): `SMTP_*` for email and `TWILIO_*` for WhatsApp. The WhatsApp sandbox only reaches phones that first sent the join code to the sandbox number; a production sender needs Twilio approval and message templates.
-- Alerts are one way. You cannot approve or pay by replying to a message.
-
-## Investigation report
-
-Open an invoice's Trust graph page: below the chain it shows an investigation report from `GET /report/invoice/{id}`. Every claim says what kind of basis it has (code check, fraud signal, AI opinion, code overruled the AI, a person's decision) and lists the record ids it rests on. It also lists each lookup the investigator made and the earlier human cases (case memory) it found. Text written by people or the AI is shown as data, never as instructions. Case memory can inform a reviewer, it can never approve anything.
-
-## Payment reliability, anomaly signals and new pages
-
-- **Retries:** PayPal calls retry on timeouts, 408, 429 and 5xx (3 tries, 1s then 2s backoff plus up to 0.5s jitter, `PAYPAL_MAX_TRIES`). A 4xx is permanent and never retried. Every try uses the same `PayPal-Request-Id`, so PayPal can never pay twice.
-- **Unknown outcome:** if every try times out the payment is `unknown`. A background job (every 60s, and inside every reconcile run) re-sends with the same key only if the invoice is still `approved`; otherwise a person is alerted. Set `RECOVER_WORKER=0` to disable the loop.
-- **Vendor behaviour signals:** amount far above the vendor's normal (needs 3+ past invoices) and invoice bursts within 24 hours raise fraud risk.
-- **Pages:** `approvals.html` (approval history with overrides), `reconcile.html` (books vs PayPal status, run reconcile), and a payment lifecycle strip on the Trust Graph page (`GET /lifecycle/{ref}`).
-- **Tests:** `python -m tests.test_payment_reliability`, `test_anomaly`, `test_insights`, and `test_lifecycle_e2e` (invoice to reconcile through the real code, plus timeout and failure variants).
-- **Concurrency across processes:** `python -m tests.test_concurrent_processes` starts separate OS processes that release the same invoice at the same instant against a fake PayPal over real HTTP (eight at once, three invoices in parallel, pay vs reject, and PayPal answering 503 mid-race). PayPal must see exactly one payout per invoice.
-- **Real sandbox check:** `SANDBOX_RECEIVER_EMAIL=... python -m scripts.sandbox_smoke` sends one real sandbox payout and prints the Trust Graph verdict.
-
-## Audit log integrity
-
-`audit_log` is append-only: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. A background sealer (every 5 s, `AUDIT_SEAL_WORKER=0` disables it) links each company's rows into a SHA-256 hash chain, and `GET /audit/chain/verify` (and the **Audit integrity** page) recomputes the whole chain: an edited, removed, reordered or forged row is detected, including by someone with full database access. Writers never wait for each other. Details, the recommended separate runtime role and what this does not prove: `docs/audit-integrity.md`. Run `python -m tests.test_audit_chain`.
-
-## Trust Graph
-
-Every invoice and payment has an evidence chain: Vendor, Invoice, PO, Delivery, Approval, Payout, PayPal webhook, Ledger, Reconcile. Open it from the "Trust graph" link on an invoice, a review-queue row or a payment (`console/trust.html`, API `GET /trust/invoice/{ref}` and `GET /trust/payment/{id}`). Each link is green (verified), red (missing or mismatch, with the reason in words) or grey (not reached yet), lists the record ids behind it, and is tagged "Verified fact" (our database, checked by code) or "AI suggestion" (read or suggested by Gemini). It only reads recorded data; it never asks an AI anything and never changes anything. A successful payout with no webhook after 10 minutes is shown red.
-
-## When the AI is slow or down
-
-Every Gemini call waits 2 s and 5 s between tries, then switches to `GEMINI_FALLBACK_MODEL` (if set). If both fail the upload is marked failed (nothing is approved) and the Needs attention card shows a **Retry** button. A held invoice whose PO or delivery arrives later is re-checked automatically when that PO or delivery is saved, and has a **Re-verify** button. Re-verify runs the same full checks; it never pays.
-
-## Console
-
-A web console for the review queue, invoices, payments and ledger, exceptions, the audit timeline and uploads. Static pages, no build step (AG Grid from a CDN): `index.html` (invoices, review, payments, exceptions, audit, upload), `vendors.html` (vendors and POs), `team.html`, `account.html`, `company.html`, `paypal.html`, `login.html`, plus `pm.js`.
-
-**The demo runs locally.** The API runs on port 8000 and the console on port 5500, the only origin the API's CORS setting allows.
-
-```powershell
-uvicorn backend.webhooks:app --port 8000        # terminal 1
-cd console; python -m http.server 5500          # terminal 2
+```mermaid
+flowchart LR
+    I[Invoice] --> H{Hard checks}
+    H -- fail --> R[REJECT]
+    H -- pass --> F[Fraud signals<br/>low / medium / high]
+    F --> A[Investigator agent<br/>read-only tools]
+    A --> G{Code gates}
+    G -- AI says approve,<br/>risk or check says no --> HOLD[HOLD for a person]
+    G -- AI down or unsure --> HOLD
+    G -- all clear --> OK[APPROVED]
+    style R fill:#fde2e2,stroke:#b42318
+    style HOLD fill:#fff1d6,stroke:#c77700
+    style OK fill:#dcf5e8,stroke:#0b7a4b
 ```
 
-Open http://localhost:5500 and log in. The session is an HttpOnly cookie: page scripts never see it, and it is sent with an `X-CSRF` header on every change. Set `CONSOLE_ORIGINS` in `.env` to the exact origin(s) the console is served from; `*` is refused. Viewers do not see buttons they cannot use, and the server refuses those calls anyway. Admins manage people, roles and the automatic payment limit on the Team page; everyone can change their own password on the My account page.
+- **Hard checks** ([`checks.py`](backend/checks.py)): PO exists and belongs to this vendor, goods delivered, amount within 2% of the PO, quantity not over-billed, duplicate invoice (including look-alike spellings), bank details changed. Only these can reject.
+- **Fraud signals** ([`fraud.py`](backend/fraud.py)): recent or different bank, amount near the limit, new payee, sender domain mismatch, look-alike vendor name, scam wording, odd hours. High total risk can never end as approve. See [`docs/fraud-signals.md`](docs/fraud-signals.md).
+- **Investigator agent** ([`investigator.py`](backend/investigator.py)): a Gemini agent with read-only tools, scoped by code to the invoice's own company. It can escalate, never loosen.
+- **If the AI is slow or down, the invoice is held**, never approved.
 
-Read-only endpoints behind the console (any logged-in member of the company): `GET /invoices`, `GET /payments`, `GET /payments/{id}` (settlement, ledger rows and a balanced check), `GET /ledger`, `GET /audit/{invoice_id}` (full timeline; the invoice number also works), `GET /summary`.
+### 3. Review: a named person, a written reason
 
-Other endpoints (same login): `POST /upload`, `/vendors`, `/pos`, `/deliveries` (vendors, purchase orders, deliveries, attachments), `POST /chat`, `GET /advise`, `GET /attention`, `/changes` (approve or reject a pending change) and `/admin` (people and settings, admin only).
+Held invoices wait in the review queue. A person can approve or reject with a reason of at least 10 characters. A person can never approve a duplicate, a missing PO or another vendor's PO. Two people cannot decide the same invoice. The uploader cannot approve their own invoice.
 
+### 4. Pay: policy, reserve, send, confirm, book
 
-## Webhooks
-
-PayPal confirms each payout by calling a public URL, so a local server needs a tunnel.
-
-1. Start a tunnel to port 8000 and note the public URL it prints:
-
-```powershell
-cloudflared tunnel --url http://localhost:8000
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Reviewer
+    participant API as PayMaster API
+    participant DB as Postgres
+    participant PP as PayPal Payouts
+    U->>API: Pay invoice
+    API->>API: Policy check (limit, new payee)
+    API->>DB: Reserve payment (unique key per invoice + attempt)
+    API->>PP: Create payout with PayPal-Request-Id = key
+    PP-->>API: batch id (retry is safe: same key, same result)
+    PP-)API: Webhook PAYMENT.PAYOUTS-ITEM.SUCCEEDED
+    API->>API: Verify webhook signature, dedupe by event id
+    API->>DB: Mark paid, write balanced ledger rows (payment + fee)
+    API->>DB: Append audit entry (hash chained)
 ```
 
-A free quick tunnel gets a **new URL every time it restarts**, so you must update the webhook URL in PayPal each time. A named tunnel on your own domain keeps one stable URL.
+A payment is saved **before** PayPal is contacted. A crash, timeout or double click re-uses the same key, so the payout happens once. Webhooks are verified, de-duplicated and applied in a safe order. If PayPal returns or reverses a payout, mirror ledger lines are appended, the invoice goes back to approved and an exception opens.
 
-2. In the PayPal dashboard, open the REST app `paymaster-us`, go to Webhooks, and add or edit a webhook:
-   - URL: `https://<your-tunnel-host>/webhooks/paypal`
-   - Event types: All Events
-3. Copy the **Webhook ID** into `.env` as `PAYPAL_WEBHOOK_ID`.
-4. Start the webhook server (in a second terminal, from the repo root):
+### 5. Reconcile: our books against PayPal
 
-```powershell
-uvicorn backend.webhooks:app --port 8000
+Settlements, ledger totals per currency and PayPal's own view are compared. Disagreements (missing webhook, status mismatch, returned money) open exceptions with an AI-written explanation that a person confirms. See [`docs/reconcile.md`](docs/reconcile.md).
+
+### 6. Trust Graph and investigation report
+
+For any invoice, a graph of what was checked against what (vendor, PO, delivery, bank history, webhook, ledger), each link marked **Verified fact** or **AI suggestion**, with a live count of proven versus unproven links. A printable investigation report is available for any case.
+
+### 7. Everything else
+
+Alerts by email and WhatsApp/SMS, ask-and-advise chat over your own data, cash advice, vendors and POs with deliveries and attachments, change approvals for sensitive edits (a vendor's payout email), exceptions queue, team and settings, document correction flow.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Client["Browser: static console (no build step)"]
+        C1[Overview / Review / Payments] --- C2[Trust Graph / Reconcile / Audit] --- C3[Vendors & POs / Team]
+    end
+
+    subgraph Service["FastAPI service (one Docker container on Render)"]
+        direction TB
+        AUTH[Auth: HttpOnly cookie + CSRF, roles, rate limits]
+        subgraph Pipeline
+            INT[Intake<br/>Gemini extraction] --> VER[Verify<br/>checks + fraud + investigator] --> REV[Review<br/>named person] --> PAY[Pay<br/>policy + idempotent payout]
+        end
+        WH[Webhook handler<br/>signature verified, deduped]
+        SET[Settle<br/>ledger + reversals]
+        REC[Reconcile + exceptions]
+        AUD[Audit log + hash-chain sealer]
+        NOT[Notifier<br/>email / WhatsApp]
+        AUTH --> Pipeline
+        WH --> SET
+        PAY --> SET
+        SET --> REC
+        Pipeline --> AUD
+        SET --> AUD
+        REC --> NOT
+    end
+
+    subgraph Data["PostgreSQL"]
+        T1[(invoices, vendors, POs, deliveries)]
+        T2[(payments, settlements)]
+        T3[(ledger_entries<br/>append-only trigger)]
+        T4[(audit_log + audit_heads<br/>append-only, hash chain)]
+    end
+
+    G[Google Gemini API]
+    P[PayPal Payouts + Webhooks<br/>sandbox]
+
+    Client -- "same-origin REST" --> Service
+    INT <--> G
+    VER <--> G
+    PAY -- "PayPal-Request-Id" --> P
+    P -- "webhook" --> WH
+    Service <--> Data
 ```
 
-Every incoming webhook's signature is verified with PayPal before it is trusted. A fake request gets `400`.
+### Application workflow
 
-
-## Pay an invoice
-
-Make sure the webhook server and the tunnel are running (see Webhooks above), or PayPal's confirmation will never reach you.
-
-1. **Verify the invoice.** The investigator decides approve, hold or reject:
-
-```powershell
-python -m backend.investigator INV-1001
+```mermaid
+stateDiagram-v2
+    [*] --> needs_review: low-confidence extraction
+    [*] --> received: invoice arrives
+    received --> rejected: a hard check fails
+    received --> held: risk, AI doubt or AI down
+    received --> approved: all layers clear
+    held --> approved: named person + reason
+    held --> rejected: named person + reason
+    approved --> policy_hold: over limit / new payee
+    policy_hold --> approved: person releases
+    approved --> paid: PayPal confirms SUCCESS
+    approved --> approved: payment failed, retry by a person
+    paid --> approved: payout returned or reversed (ledger reversed)
+    rejected --> [*]
+    paid --> [*]
 ```
 
-Or run all ten seeded invoices and see one summary line each: `python -m scripts.run_investigator`.
+### Data model
 
-2. **Try to pay it.** A payee we have never paid before is **held** for a human:
-
-```powershell
-python -m scripts.pay_invoice INV-1001
+```mermaid
+erDiagram
+    COMPANIES ||--o{ USERS : has
+    COMPANIES ||--o{ VENDORS : has
+    VENDORS ||--o{ VENDOR_BANK_HISTORY : "bank changes"
+    VENDORS ||--o{ PURCHASE_ORDERS : receives
+    PURCHASE_ORDERS ||--o{ DELIVERIES : "goods received"
+    VENDORS ||--o{ INVOICES : bills
+    INVOICES ||--o{ EXTRACTIONS : "AI reading"
+    INVOICES ||--o{ REVIEWS : "human decisions"
+    INVOICES ||--o{ EXCEPTIONS : raises
+    INVOICES ||--o{ PAYMENTS : "attempts (unique key)"
+    PAYMENTS ||--o{ SETTLEMENTS : "PayPal result"
+    PAYMENTS ||--o{ LEDGER_ENTRIES : "double entry"
+    INVOICES ||--o{ AUDIT_LOG : "hash chained"
+    PAYMENTS ||--o{ WEBHOOK_EVENTS : "deduped by event id"
 ```
 
-Result: `{'status': 'held', 'reasons': ['new_payee']}`
+### Technology stack and components
 
-3. **Release the hold** as a named human. This sends the payout to PayPal:
+| Layer | Choice | Role |
+|---|---|---|
+| API | **FastAPI** + Uvicorn | REST API, webhook receiver, serves the console at `/console` |
+| Database | **PostgreSQL** | Source of truth; triggers make the ledger and audit log append-only; per-company integrity constraints |
+| AI | **Google Gemini** | Document extraction, investigator agent, reconcile explainer, chat |
+| Payments | **PayPal Payouts** (sandbox) | Vendor payouts with `PayPal-Request-Id` idempotency, signed webhooks |
+| Console | Static HTML/JS, AG Grid | No build step; same-origin API |
+| Auth | bcrypt, JWT in HttpOnly cookie, `X-CSRF` header | Sessions, roles, login rate limits stored in the DB |
+| Alerts | SMTP, Twilio (or any WhatsApp provider) | Outbox with retry |
+| Packaging | Docker, `render.yaml` Blueprint | One service plus one database |
 
-```powershell
-python -m scripts.pay_invoice INV-1001 owner
+| Module | What it owns |
+|---|---|
+| `backend/intake.py` | Gemini extraction, confidence gate |
+| `backend/checks.py`, `fraud.py`, `investigator.py`, `verdict.py` | The three Verify layers and the final code gates |
+| `backend/review.py`, `review_api.py` | Human decisions and their rules |
+| `backend/policy.py`, `pay.py`, `idempotency.py`, `paypal_client.py` | Pay stage |
+| `backend/webhooks.py`, `settle.py` | Webhook intake, settlement, ledger, reversals |
+| `backend/reconcile.py`, `exceptions_api.py` | Reconcile and exceptions |
+| `backend/audit.py`, `audit_chain.py` | Audit log and hash chain |
+| `backend/trust.py`, `report.py` | Trust Graph and investigation report |
+| `backend/auth.py`, `auth_api.py`, `admin_api.py` | Auth, roles, team |
+| `backend/demo_data.py` | One-click synthetic demo data |
+
+## API overview
+
+About 70 endpoints, all behind login except `/auth/*` and the PayPal webhook. A selection:
+
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /auth/login`, `/auth/logout`, `/auth/signup` (off by default), `GET /auth/me` |
+| Invoices | `GET /invoices`, `POST /invoices/upload`, `POST /invoices/{id}/reverify` |
+| Review | `GET /review/queue`, `POST /review/{invoice_id}/decision` |
+| Pay | `POST /review/{invoice_id}/pay`, `GET /payments`, `GET /payments/{id}`, `GET /ledger` |
+| Webhook | `POST /webhooks/paypal` |
+| Reconcile | `GET /reconcile/status`, `POST /exceptions/{id}/explain`, `POST /exceptions/{id}/resolve` |
+| Audit | `GET /audit/{ref}`, `GET /audit/chain/verify` |
+| Trust | `GET /trust/invoice/{ref}`, `GET /report/invoice/{ref}`, `GET /lifecycle/{ref}` |
+| Master data | `/vendors`, `/pos`, `/deliveries`, `/attachments`, `/changes` |
+| Admin | `/admin/users`, `/admin/settings`, `/admin/demo-data` |
+| Insight | `GET /summary`, `/analytics`, `/attention`, `/advise`, `POST /chat` |
+
+Interactive docs are served by FastAPI at `/docs` on a running server.
+
+## Security
+
+- **Tenant isolation in the database.** Every table carries `company_id`, a row pointing at another company's vendor, PO, invoice or payment is refused, and `company_id` can never change. The AI's lookups are fixed to the invoice's company by code.
+- **Roles.** Viewer (read), reviewer (upload, decide, pay), admin (also vendors, POs, people, settings). The server refuses calls the UI hides.
+- **No self-approval.** The uploader can never approve or release their own invoice.
+- **Payout email on file only.** Money goes to the vendor's stored payout email, never one printed on an invoice. Changing it needs a second admin.
+- **Prompt-injection safe.** Anything inside an invoice, email, vendor name or note is treated as data. 14 injection texts (x3 variants) are tested.
+- **Idempotent, signature-verified payments.** Unique key per invoice and attempt; webhooks verified and de-duplicated.
+- **Tamper-evident records.** Ledger and audit log are append-only by trigger; the audit log is SHA-256 hash chained and verifiable from the console.
+- **Sessions.** bcrypt, HttpOnly cookie with CSRF header, per-email and per-address login limits kept in the DB, sessions end on logout, password change, reset or role change.
+- **Honest scope.** Demo on synthetic data. Not certified or audited; no claim of PCI DSS, SOC 2 or GDPR compliance. Uploaded documents are sent to Gemini and stored unencrypted in Postgres.
+
+## Testing and evaluation
+
+**689 automated checks across 19 suites**, run against a throwaway database:
+
+```bash
+python -m tests.test_hardening          # 167 checks: roles, isolation, idempotency, races
+python -m tests.test_ledger_reversal    # returned payouts reversed, balanced, append-only
+python -m tests.test_security_matrix    # every endpoint x every role
+python -m tests.test_ai_safety          # hostile / injected AI cannot get a bad invoice paid
+python -m tests.test_lifecycle_e2e      # upload to reconciled, end to end
 ```
 
-Result: `status: submitted`, with a PayPal batch ID.
+Per-checklist-item results are in [`docs/e2e-test-report.md`](docs/e2e-test-report.md).
 
-4. **Wait a few minutes.** PayPal sends webhooks. The webhook terminal should show `VERIFIED` and `SYNC` lines, and the payment moves to `success`.
+**Labeled evaluation (synthetic, self-written data).** 56 invoices (28 clean, 28 bad, 10 held out), plus 60 adversarial and 14 injection texts.
 
-Running the pay command again never pays twice. An invoice that already has a payment returns `already_exists`, and a paid invoice is `blocked`.
+| Run | Invoices | Precision | Recall | Bad approved |
+|---|---|---|---|---|
+| Dev set, AI replaced by a stub that approves everything | 46 | 100% | 100% | 0 |
+| Adversarial set, same stub | 60 | 100% | 100% | 0 |
 
-> **Do not pay the planted-problem invoices by hand:** INV-6001, INV-7001, inv-7001, INV-8001 and INV-9001. They exist for the Verify stage to catch.
+With the AI stubbed to approve everything, the AI alone is right 54.3% of the time, and the code gates rescue 21 bad invoices from it, each stopped for the right reason (21 of 21). That is the point of the design: **the guarantee comes from the code, not from the model.** Real-Gemini numbers and their limits are in [`docs/ai-results.md`](docs/ai-results.md). These results show the gates work on the cases we thought of, not real-world accuracy.
 
-### Check the result
+## Getting started
 
-Payment status:
+Requirements: Python 3.11+, PostgreSQL (or Docker), a PayPal sandbox app, a Gemini API key.
 
-```powershell
-docker exec -i paymaster-db psql -U paymaster -d paymaster -c "SELECT i.invoice_number, i.status AS invoice_status, p.status AS payment_status, p.paypal_batch_id FROM invoices i JOIN payments p ON p.invoice_id = i.id;"
+```bash
+git clone https://github.com/SabhyataC/paymaster.git
+cd paymaster
+python -m venv .venv && source .venv/bin/activate     # Windows: .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+cp .env.example .env 2>/dev/null || true               # then fill in the values below
+docker compose up -d db                                # or point DATABASE_URL at your own Postgres
+python -m scripts.apply_schema                         # create tables and triggers
+python -m backend.seed                                 # synthetic company (dev/demo/test/eval DBs only)
+uvicorn backend.webhooks:app --port 8000               # API + console
 ```
 
-Ledger (a balanced debit and credit for the payment, and the same for PayPal's fee):
+Open <http://localhost:8000/console/login.html>.
 
-```powershell
-docker exec -i paymaster-db psql -U paymaster -d paymaster -c "SELECT entry_type, account, direction, amount, currency FROM ledger_entries ORDER BY created_at;"
-```
+| Setting | Purpose |
+|---|---|
+| `DATABASE_URL` | Postgres connection |
+| `JWT_SECRET` | Session signing key |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | AI reading and investigation |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` | Sandbox payouts and webhook verification |
+| `SIGNUP_ENABLED`, `ALLOW_DEMO_DATA` | Off by default; turn on for a judging demo |
+| `CONSOLE_URL`, `SMTP_*`, `TWILIO_*` | Links in alerts, email and WhatsApp |
 
-Audit log (every decision, with the reason):
+Full variable list, PayPal sandbox account setup, webhook tunnelling, alerts and the payment walkthrough: **[docs/operations.md](docs/operations.md)**.
 
-```powershell
-docker exec -i paymaster-db psql -U paymaster -d paymaster -c "SELECT created_at, stage, decision, reason FROM audit_log ORDER BY created_at;"
-```
+### Deploy on Render
 
-## More docs
+`render.yaml` creates one web service (API + console) and one Postgres database. Choose **New > Blueprint**, fill the secrets marked `sync: false`, then set the PayPal webhook to `https://<service>.onrender.com/webhooks/paypal`. Details in the [operations guide](docs/operations.md#host-it-on-render).
 
-- `docs/reconcile.md`, `docs/ai-results.md`, `docs/fraud-signals.md`
-- `sandbox-findings.md`: PayPal sandbox notes
-- Tests (use a test database): `python -m tests.test_bugfixes`, `python tests/test_hardening.py`
-- License: MIT (see `LICENSE`)
+## Known limitations
+
+- One shared PayPal sandbox account funds every company's payouts. A real product would give each company its own funding account.
+- Signup does not verify email addresses, so it is off by default.
+- Currencies: USD, GBP, EUR. English invoices only. Tax is not stored, only the total.
+- The 2% amount tolerance and 0.8 confidence threshold are tunable defaults.
+- The ledger reversal assumes PayPal does not refund the original payout fee; confirm against the live sandbox.
+
+## Roadmap
+
+- Per-company PayPal funding accounts and OAuth onboarding
+- Email-verified signup, SSO and two-person approval above a configurable amount
+- Inbox integration (Gmail/Outlook) to ingest invoices automatically
+- Tax and multi-line GL coding, more currencies and languages
+- Real-Gemini evaluation dashboard and model comparison
+- Export to accounting software (QuickBooks, Xero)
+- Encryption at rest for stored documents and a formal security review
+
+## Project docs
+
+[Devpost write-up](docs/devpost.md) · [Demo video script](docs/video-script.md) · [AI results](docs/ai-results.md) · [Fraud signals](docs/fraud-signals.md) · [Audit integrity](docs/audit-integrity.md) · [Reconcile](docs/reconcile.md) · [E2E test report](docs/e2e-test-report.md) · [Sandbox findings](sandbox-findings.md) · [Operations guide](docs/operations.md)
+
+## License
+
+[MIT](LICENSE) © 2026 Sabhyata Chaudhari and contributors

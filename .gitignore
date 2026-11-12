@@ -33,3 +33,6 @@ fix_db.py
 venv/
 .venv/
 __pycache__/
+demo_invoice/                                
+
+demoinv.txt 
