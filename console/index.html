@@ -446,7 +446,7 @@
     <script src="overview.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
     <script>
-        const API = "http://localhost:8000";
+        const API = (location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(location.hostname) && location.port !== "8000")) ? "http://localhost:8000" : location.origin;   // dev: backend on :8000; hosted: same origin as the page
 
         const pmUser = JSON.parse(localStorage.getItem("pm_user") || "null");
         if (!pmUser) location.replace("login.html");

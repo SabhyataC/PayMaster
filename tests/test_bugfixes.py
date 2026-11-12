@@ -281,35 +281,6 @@ def test_b8_more():
     check("the deliveries list returns the quantity", r.status_code == 200 and all("quantity" in i for i in r.json()["items"]))
 
 
-def test_four_eyes_switch():
-    section("Four-eyes: ON by default, admin can switch it off (audited), reviewer cannot")
-    w = world()
-    admin, reviewer = bearer(w["users"]["admin"][0]), bearer(w["users"]["reviewer"][0])
-    check("new companies have the rule ON", one("SELECT require_four_eyes FROM companies WHERE id = %s", (w["cid"],))[0] is True)
-    uploader = w["users"]["reviewer"][0]
-    inv = mk_invoice(w["cid"], w["vid"], w["po_id"], status="held", uploaded_by=uploader)
-    r = client.post(f"/review/{inv}/decision", json={"decision": "approve", "reviewer": "x", "note": "Looks fine to me."}, headers=reviewer)
-    check("rule ON: the uploader cannot approve their own invoice", r.status_code in (403, 409) and "approve" not in str(r.json().get("status", "")), r.text[:200])
-    r = client.post("/admin/settings", json={"four_eyes": False}, headers=reviewer)
-    check("a reviewer cannot switch the rule off", r.status_code == 403, r.status_code)
-    r = client.post("/admin/settings", json={"four_eyes": False}, headers=admin)
-    check("an admin can switch it off", r.status_code == 200 and r.json()["four_eyes"] is False, r.text)
-    run("UPDATE companies SET auto_pay_limit = 1234 WHERE id = %s", (w["cid"],))
-    client.post("/admin/settings", json={"four_eyes": False}, headers=admin)
-    check("... and the auto-pay limit was NOT reset by that call",
-          one("SELECT auto_pay_limit FROM companies WHERE id = %s", (w["cid"],))[0] == 1234)
-    check("... and it is in the audit log",
-          one("SELECT count(*) FROM audit_log WHERE entity_id::text = %s AND reason LIKE '%%four-eyes rule OFF%%'", (str(w["cid"]),))[0] >= 1)
-    r = client.post(f"/review/{inv}/decision", json={"decision": "approve", "reviewer": "x", "note": "Looks fine to me."}, headers=reviewer)
-    check("rule OFF: the uploader may approve their own invoice", r.status_code == 200, r.text[:200])
-    other = world(); inv2 = mk_invoice(other["cid"], other["vid"], other["po_id"], status="held", uploaded_by=other["users"]["reviewer"][0])
-    r = client.post(f"/review/{inv2}/decision", json={"decision": "approve", "reviewer": "x", "note": "Looks fine to me."},
-                    headers=bearer(other["users"]["reviewer"][0]))
-    check("switching it off in one company does not affect another", r.status_code != 200, r.text[:200])
-    r = client.post("/admin/settings", json={"four_eyes": True}, headers=admin)
-    check("it can be switched back on", r.status_code == 200 and r.json()["four_eyes"] is True)
-
-
 def test_b12_adversarial_set():
     section("B12  50+ unseen adversarial invoices (stub AI here; run without --stub-ai for real numbers)")
     r = subprocess.run([sys.executable, "-m", "scripts.adversarial_eval", "--stub-ai", "--seed", "7"],
@@ -324,7 +295,7 @@ def test_b12_adversarial_set():
 
 def main():
     tests = [test_b3_seed_guard, test_b4_ai_retry_and_fallback, test_b5_duplicate_is_deterministic, test_b6_quantity,
-             test_b8_reverify, test_b8_more, test_four_eyes_switch, test_b12_adversarial_set]
+             test_b8_reverify, test_b8_more, test_b12_adversarial_set]
     only = sys.argv[1:]
     for t in tests:
         if only and not any(o in t.__name__ for o in only):

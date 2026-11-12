@@ -217,6 +217,8 @@ app.include_router(router)   # PayPal webhooks: stay open
 app.include_router(auth_router)   # signup/login: stay open
 from backend.admin_api import router as admin_router
 app.include_router(admin_router)   # admin-only: each route checks the admin role
+from backend.demo_data import router as demo_router
+app.include_router(demo_router)    # admin-only demo data button (off unless ALLOW_DEMO_DATA=1)
 app.include_router(review_router, dependencies=guard)
 app.include_router(exceptions_router, dependencies=guard)
 app.include_router(run_router, dependencies=guard)
@@ -257,3 +259,12 @@ def _start_alert_worker():
                 except Exception:
                     pass
         threading.Thread(target=loop, name="recover-unknown", daemon=True).start()
+
+
+# Hosted: the same server also serves the console, so the page and the API share one origin
+# (no CORS, cookies stay first-party). Open  https://<host>/console/login.html
+from pathlib import Path as _Path
+from fastapi.staticfiles import StaticFiles
+_CONSOLE_DIR = _Path(__file__).resolve().parent.parent / "console"
+if _CONSOLE_DIR.is_dir():
+    app.mount("/console", StaticFiles(directory=str(_CONSOLE_DIR), html=True), name="console")

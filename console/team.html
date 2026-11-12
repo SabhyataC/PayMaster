@@ -229,6 +229,18 @@
                 <div class="msg" id="lmsg"></div>
             </div>
 
+            <div class="card" id="democard" style="display:none">
+                <h2>Demo data</h2>
+                <p class="sub">Adds five synthetic vendors and five invoices to this company so you can try the whole
+                    flow: a clean invoice, changed bank details, billed before delivery, a copy of an earlier invoice
+                    and one over the automatic payment limit. Nothing is deleted and no other company is touched.
+                    Verify runs on them in the background, so give it a minute.</p>
+                <div class="row">
+                    <div><button id="demo_add">Add demo data</button></div>
+                </div>
+                <div class="msg" id="demo_msg"></div>
+            </div>
+
             <div class="card">
                 <h2>Alerts by email and WhatsApp</h2>
                 <p class="sub">Get a message when something needs a person. Messages never contain bank details, only
@@ -269,7 +281,7 @@
     <script src="pm.js"></script>
     <script src="ui.js"></script>
     <script>
-        const API = "http://localhost:8000";
+        const API = (location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(location.hostname) && location.port !== "8000")) ? "http://localhost:8000" : location.origin;   // dev: backend on :8000; hosted: same origin as the page
         const $ = id => document.getElementById(id);
         const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
         const detail = d => typeof d.detail === "string" ? d.detail : "Please check what you entered";
@@ -336,6 +348,27 @@
             $("lmsg").className = "msg " + (r.ok ? "ok" : "err");
             $("lmsg").textContent = r.ok ? "Saved." : detail(r.data);
         };
+
+        // ---- Demo data ----
+        async function loadDemo() {
+            const r = await call("/admin/demo-data");
+            if (!r.ok || !r.data.enabled) return;            // hidden when the server has it switched off
+            $("democard").style.display = "";
+            if (r.data.loaded) { $("demo_add").disabled = true; $("demo_msg").className = "msg ok"; $("demo_msg").textContent = "Demo data is already in this company."; }
+        }
+        $("demo_add").onclick = async () => {
+            $("demo_add").disabled = true; $("demo_msg").className = "msg"; $("demo_msg").textContent = "Adding...";
+            const r = await call("/admin/demo-data", "POST");
+            if (r.ok) {
+                $("demo_msg").className = "msg ok";
+                $("demo_msg").textContent = "Added 5 vendors and 5 invoices. Verify is running; open the review queue in a minute.";
+                PM.toast("Demo data added", "ok");
+            } else {
+                $("demo_msg").className = "msg err"; $("demo_msg").textContent = detail(r.data);
+                if (r.data.detail && !String(r.data.detail).includes("already")) $("demo_add").disabled = false;
+            }
+        };
+        loadDemo();
 
         // ---- Alerts ----
         const lines = t => t.split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);

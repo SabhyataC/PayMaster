@@ -103,6 +103,25 @@ This **erases all tables first** and rebuilds the demo company: 10 SYNTHETIC ven
 
 Five vendors use real sandbox account emails (`paymaster-vendor-*@example.com`), so their payouts reach SUCCESS. The planted-problem vendors use fake emails, because they should never reach PayPal.
 
+## Host it on Render
+
+One web service serves both the API and the console, plus one Postgres database. Both come from `render.yaml`.
+
+1. Push the repo to GitHub. In Render choose **New > Blueprint** and pick the repo. Render builds the `Dockerfile` and creates `paymaster` and `paymaster-db`.
+2. Fill in the secrets Render asks for (everything marked `sync: false` in `render.yaml`): `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `GEMINI_API_KEY`, and optionally `PAYPAL_ACCOUNT_EMAIL`, the `SMTP_*` and `TWILIO_*` values and `CONSOLE_URL` (`https://<service>.onrender.com/console`). `JWT_SECRET` is generated for you. `DATABASE_URL` is wired automatically.
+3. The container applies `db/schema.sql` on every start (safe to repeat), then starts the server on Render's `$PORT`.
+4. Open `https://<service>.onrender.com/console/login.html`. The console talks to the same address it is served from, so no CORS or URL settings are needed.
+5. In the PayPal developer dashboard set the webhook URL to `https://<service>.onrender.com/webhooks/paypal`, copy the new webhook id into `PAYPAL_WEBHOOK_ID`, and redeploy. No tunnel is needed any more.
+6. Judges sign up (`SIGNUP_ENABLED=true` in `render.yaml`), create a company, and press **Add demo data** on the Team page (`ALLOW_DEMO_DATA=1`). Remove both settings on a real deployment.
+
+Notes: the free web plan sleeps after 15 minutes idle and the first request then takes about a minute, so use the Starter plan while judging or open the site a few minutes before. Free Postgres expires after 30 days. If Gemini cannot be reached, invoices are held for a person instead of approved, which is deliberate. Render's free plan has no shell, which is why the demo data is a button and not a script.
+
+## Demo data button (for judges)
+
+Set `ALLOW_DEMO_DATA=1` in the server's environment. Then an admin sees an **Add demo data** card on the Team page. One click adds five synthetic vendors and five invoices to **that admin's own company**: a clean invoice, changed bank details, billed before delivery, a copy of an earlier invoice, and one over the automatic payment limit. Verify then runs on them in the background. It never deletes anything, never touches another company, refuses a second click (409), and is written to the audit log. Without `ALLOW_DEMO_DATA=1` the card is hidden and the endpoint answers 403, so a real deployment cannot be filled with fake invoices by accident.
+
+The clean vendors pay out to the PayPal sandbox accounts, so approving and paying the clean invoice reaches SUCCESS. The over-limit invoice is approved by Verify and held for a person when you press Pay.
+
 ## Review held invoices
 
 Start the server (it serves the webhooks and the review API):
@@ -111,7 +130,7 @@ Start the server (it serves the webhooks and the review API):
 uvicorn backend.webhooks:app --port 8000
 ```
 
-Every call needs a logged-in member of the company. Deciding and paying need the reviewer or admin role; viewers can only read. The person who uploaded an invoice cannot approve or release it when another reviewer or admin exists.
+Every call needs a logged-in member of the company. Deciding and paying need the reviewer or admin role; viewers can only read.
 
 ```powershell
 $login = Invoke-RestMethod -Method Post http://localhost:8000/auth/login -ContentType "application/json" -Body (@{email="you@example.com"; password="your password"} | ConvertTo-Json)
@@ -218,7 +237,7 @@ Other endpoints (same token): `GET /exceptions`, `GET /exceptions/{id}`, `POST /
 ## Security and privacy
 
 - Every company's data is separate. Each table carries a required `company_id`, the database refuses a row that points at another company's vendor, purchase order, invoice or payment, and `company_id` can never be changed after a row exists. Every lookup the AI investigator can make is fixed by code to the invoice's own company; the AI cannot choose or change it.
-- Roles: viewer (read), reviewer (upload, decide, release payments, resolve exceptions), admin (also vendors, POs, people, settings). The person who uploaded an invoice cannot approve or release it when another reviewer or admin exists. A company always keeps one active admin.
+- Roles: viewer (read), reviewer (upload, decide, release payments, resolve exceptions), admin (also vendors, POs, people, settings). A company always keeps one active admin.
 - Passwords are bcrypt hashed. Logins are limited per email and per address in the database, so a restart does not reset the limit. Logging out, changing a password, a reset or a role change ends every older session. There is no email service, so an admin creates a one-time reset token, shown once and valid for an hour.
 - Uploads are checked by content, not name: real PDF, PNG, JPG or UTF-8 text; at most 10 MB and 20 PDF pages; no scripts, launch actions or embedded files in PDFs; limited per person and per company.
 - The AI only reads. Anything inside an invoice, email, vendor name or reviewer note is treated as data. Code, never the AI, decides what may be paid: only hard checks can reject, only a named person can release a hold, and a hostile AI that approves everything still cannot get a bad invoice paid (`python -m scripts.eval --stub-ai`, `python tests/test_hardening.py`).

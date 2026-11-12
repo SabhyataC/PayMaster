@@ -1,6 +1,6 @@
 (function () {
     const nativeFetch = window.fetch.bind(window);
-    const apiBase = () => (typeof API !== "undefined" ? API : "http://localhost:8000");
+    const apiBase = () => (typeof API !== "undefined" ? API : (location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(location.hostname) && location.port !== "8000")) ? "http://localhost:8000" : location.origin);
 
     window.fetch = function (url, opts) {
         const options = Object.assign({}, opts || {});

@@ -322,7 +322,7 @@
     <script src="ui.js"></script>
     <script src="viz.js"></script>
     <script>
-        const API = "http://localhost:8000";
+        const API = (location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(location.hostname) && location.port !== "8000")) ? "http://localhost:8000" : location.origin;   // dev: backend on :8000; hosted: same origin as the page
         const $ = id => document.getElementById(id);
         function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined && text !== null) e.textContent = text; return e; }
         const when = t => t ? new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never";

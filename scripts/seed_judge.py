@@ -4,7 +4,7 @@
     python -m scripts.seed_judge --stub-ai       # code layers only, no Gemini calls
 
 Creates one company "PayMaster Judge Demo (SYNTHETIC)" with
-  * an owner/admin (uploads the invoices, so the four-eyes rule lets the judge release them)
+  * an owner/admin (uploads the invoices)
   * a judge login with the REVIEWER role (approve, reject, pay; cannot change settings or people)
   * five vendors, POs, deliveries and five invoices that tell the story:
       clean -> approved | changed bank details -> held | no delivery -> held |

@@ -252,7 +252,7 @@
     <script src="pm.js"></script>
     <script src="ui.js"></script>
     <script>
-        const API = "http://localhost:8000";
+        const API = (location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(location.hostname) && location.port !== "8000")) ? "http://localhost:8000" : location.origin;   // dev: backend on :8000; hosted: same origin as the page
         const $ = id => document.getElementById(id);
         const user = JSON.parse(localStorage.getItem("pm_user") || "null");
         function logout() { PM.logout(); }

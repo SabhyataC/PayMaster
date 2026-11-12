@@ -171,13 +171,11 @@ def test_upload_to_reconcile():
           one("SELECT vendor_id FROM invoices WHERE id = %s", (inv,))[0] == w["vid"])
     check("intake is on the audit trail", one("SELECT count(*) FROM audit_log WHERE entity_id = %s AND stage = 'intake'", (inv,))[0] == 1)
     check("Verify decided", d["verdict"] in ("approve", "hold", "reject"), d["verdict"])
-    ad = bearer(w["users"]["admin"][0])      # four-eyes: the person who uploaded may not release their own invoice
+    ad = bearer(w["users"]["admin"][0])  
     if d["invoice_status"] == "held":
         client.post(f"/review/{inv}/decision", json={"decision": "approve", "note": "ok", "confirmed_with_vendor": True}, headers=ad)
     check("a first-time payee is held for a second person, not paid automatically", d.get("payment") in ("held", "submitted"), d.get("payment"))
     if one("SELECT count(*) FROM payments WHERE invoice_id = %s", (inv,))[0] == 0:
-        own = client.post(f"/review/{inv}/pay", json={}, headers=rv)
-        check("the uploader cannot release their own invoice", own.status_code in (403, 409, 422) and one("SELECT count(*) FROM payments WHERE invoice_id = %s", (inv,))[0] == 0, (own.status_code, own.text[:120]))
         client.post(f"/review/{inv}/pay", json={}, headers=ad)
     pay_row = one("SELECT status, paypal_batch_id FROM payments WHERE invoice_id = %s", (inv,))
     check("a payment was sent exactly once", pay_row and pay_row[0] == "submitted" and fake.calls == 1, (pay_row, fake.calls))

@@ -82,7 +82,6 @@ The matrix is **generated from the live route table**, so a new endpoint cannot 
 | Database-level isolation | Verified | `test_hardening` S4: the database itself refuses cross-company rows |
 | Background jobs and AI tools | Verified | `test_hardening` S1 to S3 (tool scoping), `test_ai_safety` (Section 3) |
 | Role checks | Verified | A viewer is refused on every write and admin endpoint. A reviewer is refused on admin and vendor-change approval endpoints |
-| Four-eyes (uploader cannot release own invoice) | Verified | `test_hardening` S5 |
 | Concurrency (double pay, approve vs reject) | Verified | `test_hardening` B1 (two clicks, one payment), `test_concurrent_processes` |
 | SQL injection | Verified | Injection strings in ids, search and filter parameters never reach SQL and never return 500. Login with `' OR 1=1 --` is refused |
 | CSRF and cookies | Not applicable by design | Auth is a bearer token in a header. The server sets no cookie. A browser on another site cannot send it |

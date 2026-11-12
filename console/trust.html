@@ -806,7 +806,7 @@
     <script src="lifecycle.js"></script>
     <script src="report.js"></script>
     <script>
-        const API = "http://localhost:8000";
+        const API = (location.protocol === "file:" || (["localhost", "127.0.0.1"].includes(location.hostname) && location.port !== "8000")) ? "http://localhost:8000" : location.origin;   // dev: backend on :8000; hosted: same origin as the page
         const $ = id => document.getElementById(id);
         const SYMBOL = { ok: "✓", problem: "✗", pending: "…" };
         const WORD = { ok: "Verified", problem: "Problem: missing or mismatch", pending: "Not reached yet" };
